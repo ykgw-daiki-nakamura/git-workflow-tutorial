@@ -1,0 +1,97 @@
+# GitHub Actions からの OIDC フェデレーション。
+# ポイント: sub 条件を "environment:<env>" に限定しているため、
+# GitHub Environments の保護ルール (production の必須レビュアー承認など) を
+# 通過しない限り、対応する AWS ロールを assume できない。
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd",
+  ]
+}
+
+data "aws_iam_policy_document" "assume" {
+  for_each = local.environments
+
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:environment:${each.key}"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "deploy" {
+  for_each = local.environments
+
+  # ECR: リポジトリスコープの push/pull (RC ビルドと GA の crane tag に必要)
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+      "ecr:DescribeImages",
+    ]
+    resources = [aws_ecr_repository.backend.arn]
+  }
+
+  # Lambda: 自環境の関数のみ更新可能
+  statement {
+    actions = [
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+    ]
+    resources = [aws_lambda_function.api[each.key].arn]
+  }
+
+  # S3: 自環境のフロントエンドバケットのみ
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.frontend[each.key].arn]
+  }
+  statement {
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.frontend[each.key].arn}/*"]
+  }
+
+  # CloudFront: 自環境のディストリビューションの invalidation のみ
+  statement {
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = [aws_cloudfront_distribution.app[each.key].arn]
+  }
+}
+
+resource "aws_iam_role" "deploy" {
+  for_each           = local.environments
+  name               = "${var.project_name}-${each.key}-deploy"
+  assume_role_policy = data.aws_iam_policy_document.assume[each.key].json
+}
+
+resource "aws_iam_role_policy" "deploy" {
+  for_each = local.environments
+  name     = "deploy"
+  role     = aws_iam_role.deploy[each.key].id
+  policy   = data.aws_iam_policy_document.deploy[each.key].json
+}

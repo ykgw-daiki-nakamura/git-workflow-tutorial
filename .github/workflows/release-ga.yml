@@ -1,0 +1,124 @@
+# GA タグ (v1.0.0 など) の push で起動する。
+# ビルドは一切行わない (deploy many)。やることは検証と昇格だけ。
+#
+#   1. 同一バージョンの最新 RC タグを特定し、GA タグと同一コミットであることを検証
+#   2. バックエンド: crane tag で RC イメージの digest にそのまま GA タグを追加
+#      (再ビルドなし・digest 不変を検証)
+#   3. フロントエンド: RC の Release アセットをダウンロードし、
+#      チェックサム検証のうえ GA Release に再添付
+#   4. production へデプロイ (Environment の必須レビュアー承認で停止する)
+name: Release GA
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  id-token: write
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ga:
+    # タグパターンが RC にもマッチするため、RC はここで除外する
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    runs-on: ubuntu-latest
+    environment: production # ここで必須レビュアーの承認待ちになる
+    env:
+      TAG: ${{ github.ref_name }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find matching RC & verify same commit
+        id: rc
+        run: |
+          GA_COMMIT=$(git rev-list -n 1 "${TAG}")
+          RC_TAG=$(git tag -l "${TAG}-rc.*" --sort=-v:refname | head -n 1)
+          if [ -z "${RC_TAG}" ]; then
+            echo "::error::対応する RC タグが見つからない。GA の前に必ず RC を経ること (規約: リリース手順)"
+            exit 1
+          fi
+          RC_COMMIT=$(git rev-list -n 1 "${RC_TAG}")
+          if [ "${GA_COMMIT}" != "${RC_COMMIT}" ]; then
+            echo "::error::GA タグ (${GA_COMMIT}) と ${RC_TAG} (${RC_COMMIT}) のコミットが一致しない。GA タグは検証済み RC と同一コミットに打つこと"
+            exit 1
+          fi
+          echo "rc_tag=${RC_TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: imjasonh/setup-crane@v0.4
+
+      - name: Promote backend image (再ビルドなし)
+        id: promote
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          RC_TAG: ${{ steps.rc.outputs.rc_tag }}
+        run: |
+          aws ecr get-login-password | crane auth login "${REGISTRY}" -u AWS --password-stdin
+          RC_DIGEST=$(crane digest "${REGISTRY}/${ECR_REPOSITORY}:${RC_TAG}")
+          crane tag "${REGISTRY}/${ECR_REPOSITORY}:${RC_TAG}" "${TAG}"
+          GA_DIGEST=$(crane digest "${REGISTRY}/${ECR_REPOSITORY}:${TAG}")
+          if [ "${RC_DIGEST}" != "${GA_DIGEST}" ]; then
+            echo "::error::digest が RC と一致しない (RC=${RC_DIGEST}, GA=${GA_DIGEST})"
+            exit 1
+          fi
+          echo "RC と GA は同一 digest: ${GA_DIGEST}"
+          echo "digest=${GA_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image_uri=${REGISTRY}/${ECR_REPOSITORY}@${GA_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Download RC frontend artifact & verify checksum
+        env:
+          RC_TAG: ${{ steps.rc.outputs.rc_tag }}
+        run: |
+          gh release download "${RC_TAG}" \
+            -p 'dist-*.tar.gz' -p 'checksums.txt' -p 'release-manifest.json'
+          sha256sum -c checksums.txt
+          mkdir -p site
+          tar -xzf dist-*.tar.gz -C site
+
+      - name: Create GA release (RC のアセットをそのまま再利用)
+        env:
+          RC_TAG: ${{ steps.rc.outputs.rc_tag }}
+        run: |
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes "Promoted from ${RC_TAG} (同一アーティファクト)。Backend digest: \`${{ steps.promote.outputs.digest }}\`" \
+            dist-*.tar.gz checksums.txt release-manifest.json
+
+      - name: Deploy backend to production (digest 参照)
+        run: |
+          aws lambda update-function-code \
+            --function-name "${FUNCTION_NAME}" \
+            --image-uri "${{ steps.promote.outputs.image_uri }}"
+          aws lambda wait function-updated-v2 --function-name "${FUNCTION_NAME}"
+          aws lambda update-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --environment "Variables={APP_ENV=production,IMAGE_DIGEST=${{ steps.promote.outputs.digest }}}"
+          aws lambda wait function-updated-v2 --function-name "${FUNCTION_NAME}"
+
+      - name: Deploy frontend to production
+        run: |
+          aws s3 sync site "s3://${{ vars.S3_BUCKET }}" --delete
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
+      - name: Show production URL
+        run: echo "production => ${{ vars.APP_URL }}"
