@@ -32,7 +32,7 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 # main / release/* の Ruleset が要求する必須ステータスチェック。
 # .github/workflows/ci.yml のジョブ名と一致させること。ここが唯一の定義元。
-STATUS_CHECK_CONTEXTS=(pr-title frontend backend)
+STATUS_CHECK_CONTEXTS=(pr-title frontend backend shellcheck)
 
 # ("a" "b") -> [{ "context": "a" }, { "context": "b" }]
 STATUS_CHECKS_JSON="[$(printf '{ "context": "%s" }, ' "${STATUS_CHECK_CONTEXTS[@]}" | sed 's/, $//')]"
