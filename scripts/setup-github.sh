@@ -23,6 +23,34 @@ cd "$(dirname "$0")/.."
 MODE="${1:?usage: setup-github.sh solo | pair <reviewer-login>}"
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
+# 文字列を JSON 文字列リテラルにする。GitHub のジョブ名には空白や記号を
+# 使えるため、値をそのまま JSON へ埋め込まない。
+json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "${s}"
+}
+
+# main / release/* の Ruleset が要求する必須ステータスチェック。
+# .github/workflows/ci.yml のジョブ名と一致させること。ここが唯一の定義元。
+STATUS_CHECK_CONTEXTS=(pr-title frontend backend)
+
+# 空のまま Ruleset を作ると「CI なしでマージできる main」になる。
+# printf は引数 0 個でも %s を 1 回展開するため、ここで弾かないと
+# [{ "context": "" }] という要求不能なチェックが黙って適用される。
+if [[ ${#STATUS_CHECK_CONTEXTS[@]} -eq 0 ]]; then
+  echo "ERROR: STATUS_CHECK_CONTEXTS が空です" >&2
+  exit 1
+fi
+
+# ("a" "b") -> [{ "context": "a" }, { "context": "b" }]
+STATUS_CHECK_ITEMS=()
+for CONTEXT in "${STATUS_CHECK_CONTEXTS[@]}"; do
+  STATUS_CHECK_ITEMS+=("{ \"context\": $(json_string "${CONTEXT}") }")
+done
+STATUS_CHECKS_JSON=$(IFS=,; printf '[%s]' "${STATUS_CHECK_ITEMS[*]}")
+
 case "${MODE}" in
   solo)
     APPROVALS=0
@@ -79,13 +107,17 @@ done
 
 echo "==> [4/4] Rulesets を作成"
 
-# main: PR 必須 + squash のみ + 必須ステータスチェック + 削除/force push 禁止
-gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
+# main と release/* に同一の保護をかける。ブランチ条件だけが異なる。
+# ref は素の文字列で受け取り、JSON 化はこの関数が担う。呼び出し側に
+# クォートを任せると、付け忘れが不正な JSON になって初めて分かる。
+create_branch_ruleset() {
+  local name="$1" ref="$2"
+  gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
 {
-  "name": "tutorial-protect-main",
+  "name": "${name}",
   "target": "branch",
   "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "conditions": { "ref_name": { "include": [$(json_string "${ref}")], "exclude": [] } },
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
@@ -104,54 +136,19 @@ gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
-        "required_status_checks": [
-          { "context": "pr-title" },
-          { "context": "frontend" },
-          { "context": "backend" }
-        ]
+        "required_status_checks": ${STATUS_CHECKS_JSON}
       }
     }
   ]
 }
 EOF
-echo "    tutorial-protect-main"
+  echo "    ${name}"
+}
 
+# PR 必須 + squash のみ + 必須ステータスチェック + 削除/force push 禁止
+create_branch_ruleset "tutorial-protect-main" "~DEFAULT_BRANCH"
 # release/*: main と同等の保護 (バックポートも PR 経由を強制)
-gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
-{
-  "name": "tutorial-protect-release-branches",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": { "ref_name": { "include": ["refs/heads/release/**"], "exclude": [] } },
-  "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": ${APPROVALS},
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false,
-        "allowed_merge_methods": ["squash"]
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [
-          { "context": "pr-title" },
-          { "context": "frontend" },
-          { "context": "backend" }
-        ]
-      }
-    }
-  ]
-}
-EOF
-echo "    tutorial-protect-release-branches"
+create_branch_ruleset "tutorial-protect-release-branches" "refs/heads/release/**"
 
 # v* タグ: 公開済みタグの削除・付け替えを禁止
 gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
