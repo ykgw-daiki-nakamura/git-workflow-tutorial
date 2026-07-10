@@ -2,13 +2,20 @@
 # Terraform の出力を GitHub の variables に同期する。
 # 対象の環境は terraform の environments 出力から導出する (local.environments が定義元)。
 #
-# 前提:
+# 前提 (いずれも実行時に検証する):
 #   - terraform apply 完了済み
 #   - scripts/setup-github.sh 実行済み (Environments が存在すること)
 #   - gh CLI ログイン済み、jq インストール済み
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/preflight.sh
+source "${SCRIPT_DIR}/lib/preflight.sh"
+cd "${SCRIPT_DIR}/.."
+
+require_cmd gh jq terraform
+require_gh_auth
 
 # terraform 出力から必須の値を取り出す。
 # jq -r は不在キーに対しても終了コード 0 のまま文字列 "null" を出力するため、
@@ -27,6 +34,23 @@ jq_required() {
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 OUTPUTS=$(terraform -chdir=terraform output -json)
 
+# 環境名は terraform の local.environments を唯一の定義元とし、
+# その出力から導出する。ここで列挙すると terraform 側への追加が
+# 無言で無視されるため。
+ENV_NAMES=$(jq_required '.environments.value | keys[]' "${OUTPUTS}")
+mapfile -t ENVIRONMENTS <<< "${ENV_NAMES}"
+
+# gh variable set --env は Environment が無いと 404 で落ちる。
+# 原因 (setup-github.sh 未実行) が分かるよう、1 件も書き込む前に確認する。
+EXISTING_ENVS=$(gh api "repos/${REPO}/environments" -q '.environments[].name')
+for ENV_NAME in "${ENVIRONMENTS[@]}"; do
+  if ! grep -qxF "${ENV_NAME}" <<< "${EXISTING_ENVS}"; then
+    echo "ERROR: GitHub Environment '${ENV_NAME}' がありません" >&2
+    echo "       先に ./scripts/setup-github.sh を実行してください" >&2
+    exit 1
+  fi
+done
+
 # 値は必ず変数へ代入してから渡すこと。
 # gh variable set --body "$(jq_required ...)" と書くと、引数内のコマンド置換の
 # 失敗は set -e で捕捉されず、空文字が書き込まれたまま成功してしまう。
@@ -35,12 +59,6 @@ AWS_REGION=$(jq_required '.aws_region.value' "${OUTPUTS}")
 ECR_REPOSITORY=$(jq_required '.ecr_repository_name.value' "${OUTPUTS}")
 gh variable set AWS_REGION --body "${AWS_REGION}"
 gh variable set ECR_REPOSITORY --body "${ECR_REPOSITORY}"
-
-# 環境名は terraform の local.environments を唯一の定義元とし、
-# その出力から導出する。ここで列挙すると terraform 側への追加が
-# 無言で無視されるため。
-ENV_NAMES=$(jq_required '.environments.value | keys[]' "${OUTPUTS}")
-mapfile -t ENVIRONMENTS <<< "${ENV_NAMES}"
 
 for ENV_NAME in "${ENVIRONMENTS[@]}"; do
   echo "==> environment: ${ENV_NAME}"
