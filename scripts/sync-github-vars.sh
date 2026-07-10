@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Terraform の出力を GitHub の variables に同期する。
+# 対象の環境は terraform の environments 出力から導出する (local.environments が定義元)。
 #
 # 前提:
 #   - terraform apply 完了済み
@@ -35,9 +36,15 @@ ECR_REPOSITORY=$(jq_required '.ecr_repository_name.value' "${OUTPUTS}")
 gh variable set AWS_REGION --body "${AWS_REGION}"
 gh variable set ECR_REPOSITORY --body "${ECR_REPOSITORY}"
 
-for ENV in dev staging production; do
-  echo "==> environment: ${ENV}"
-  E=$(jq_required ".environments.value.\"${ENV}\"" "${OUTPUTS}")
+# 環境名は terraform の local.environments を唯一の定義元とし、
+# その出力から導出する。ここで列挙すると terraform 側への追加が
+# 無言で無視されるため。
+ENV_NAMES=$(jq_required '.environments.value | keys[]' "${OUTPUTS}")
+mapfile -t ENVIRONMENTS <<< "${ENV_NAMES}"
+
+for ENV_NAME in "${ENVIRONMENTS[@]}"; do
+  echo "==> environment: ${ENV_NAME}"
+  E=$(jq_required ".environments.value.\"${ENV_NAME}\"" "${OUTPUTS}")
 
   AWS_ROLE_ARN=$(jq_required '.role_arn' "${E}")
   LAMBDA_FUNCTION_NAME=$(jq_required '.lambda_function_name' "${E}")
@@ -45,11 +52,11 @@ for ENV in dev staging production; do
   CLOUDFRONT_DISTRIBUTION_ID=$(jq_required '.cloudfront_distribution_id' "${E}")
   APP_URL=$(jq_required '.app_url' "${E}")
 
-  gh variable set AWS_ROLE_ARN --env "${ENV}" --body "${AWS_ROLE_ARN}"
-  gh variable set LAMBDA_FUNCTION_NAME --env "${ENV}" --body "${LAMBDA_FUNCTION_NAME}"
-  gh variable set S3_BUCKET --env "${ENV}" --body "${S3_BUCKET}"
-  gh variable set CLOUDFRONT_DISTRIBUTION_ID --env "${ENV}" --body "${CLOUDFRONT_DISTRIBUTION_ID}"
-  gh variable set APP_URL --env "${ENV}" --body "${APP_URL}"
+  gh variable set AWS_ROLE_ARN --env "${ENV_NAME}" --body "${AWS_ROLE_ARN}"
+  gh variable set LAMBDA_FUNCTION_NAME --env "${ENV_NAME}" --body "${LAMBDA_FUNCTION_NAME}"
+  gh variable set S3_BUCKET --env "${ENV_NAME}" --body "${S3_BUCKET}"
+  gh variable set CLOUDFRONT_DISTRIBUTION_ID --env "${ENV_NAME}" --body "${CLOUDFRONT_DISTRIBUTION_ID}"
+  gh variable set APP_URL --env "${ENV_NAME}" --body "${APP_URL}"
 done
 
 echo ""
