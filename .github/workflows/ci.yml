@@ -52,6 +52,21 @@ jobs:
       - run: shellcheck --version
       # -x: source されるファイル (scripts/lib/preflight.sh) も追跡する
       - run: shellcheck -x scripts/*.sh scripts/lib/*.sh .devcontainer/*.sh
+      # shellcheck は構文しか見ないため、実行ビットの欠落は素通りする。
+      # README と docs は ./scripts/xxx.sh 形式で直接実行を案内しているので、
+      # 落ちていると clone した全員が Permission denied で止まる。
+      # scripts/lib/ は source 専用、.devcontainer/post-create.sh は
+      # devcontainer.json が bash 経由で呼ぶため、どちらも対象外。
+      - name: エントリポイントに実行ビットがあるか
+        run: |
+          MISSING=0
+          for f in scripts/*.sh; do
+            if [ ! -x "$f" ]; then
+              echo "::error file=${f}::実行ビットがありません (git update-index --chmod=+x ${f})"
+              MISSING=1
+            fi
+          done
+          exit "${MISSING}"
 
   frontend:
     name: frontend
