@@ -24,12 +24,33 @@ cd "$(dirname "$0")/.."
 MODE="${1:?usage: setup-github.sh solo | pair <reviewer-login>}"
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
+# 文字列を JSON 文字列リテラルにする。GitHub のジョブ名には空白や記号を
+# 使えるため、値をそのまま JSON へ埋め込まない。
+json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "${s}"
+}
+
 # main / release/* の Ruleset が要求する必須ステータスチェック。
 # .github/workflows/ci.yml のジョブ名と一致させること。ここが唯一の定義元。
 STATUS_CHECK_CONTEXTS=(pr-title frontend backend)
 
+# 空のまま Ruleset を作ると「CI なしでマージできる main」になる。
+# printf は引数 0 個でも %s を 1 回展開するため、ここで弾かないと
+# [{ "context": "" }] という要求不能なチェックが黙って適用される。
+if [[ ${#STATUS_CHECK_CONTEXTS[@]} -eq 0 ]]; then
+  echo "ERROR: STATUS_CHECK_CONTEXTS が空です" >&2
+  exit 1
+fi
+
 # ("a" "b") -> [{ "context": "a" }, { "context": "b" }]
-STATUS_CHECKS_JSON="[$(printf '{ "context": "%s" }, ' "${STATUS_CHECK_CONTEXTS[@]}" | sed 's/, $//')]"
+STATUS_CHECK_ITEMS=()
+for CONTEXT in "${STATUS_CHECK_CONTEXTS[@]}"; do
+  STATUS_CHECK_ITEMS+=("{ \"context\": $(json_string "${CONTEXT}") }")
+done
+STATUS_CHECKS_JSON=$(IFS=,; printf '[%s]' "${STATUS_CHECK_ITEMS[*]}")
 
 case "${MODE}" in
   solo)
@@ -90,11 +111,13 @@ RULESET_NAMES=(
   tutorial-protect-release-tags
 )
 
-# "<id> <name>" の一覧。同名 Ruleset があれば作成ではなく更新する。
-EXISTING_RULESETS=$(gh api "repos/${REPO}/rulesets" -q '.[] | "\(.id) \(.name)"')
+# "<id>\t<name>" の一覧。同名 Ruleset があれば作成ではなく更新する。
+# Ruleset 名には空白を含められるため、区切りはタブ。--paginate が無いと
+# 既定の 1 ページ分しか見えず、既存を見落として重複作成しうる。
+EXISTING_RULESETS=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[] | [.id, .name] | @tsv')
 
 ruleset_id() {
-  awk -v name="$1" '$2 == name { print $1; exit }' <<< "${EXISTING_RULESETS}"
+  awk -F'\t' -v name="$1" '$2 == name { print $1; exit }' <<< "${EXISTING_RULESETS}"
 }
 
 # 同名があれば PUT で上書き、無ければ POST で作成する。
@@ -113,14 +136,16 @@ apply_ruleset() {
 }
 
 # main と release/* に同一の保護をかける。ブランチ条件だけが異なる。
+# ref は素の文字列で受け取り、JSON 化はこの関数が担う。呼び出し側に
+# クォートを任せると、付け忘れが不正な JSON になって初めて分かる。
 branch_ruleset_body() {
-  local name="$1" include="$2"
+  local name="$1" ref="$2"
   cat <<EOF
 {
   "name": "${name}",
   "target": "branch",
   "enforcement": "active",
-  "conditions": { "ref_name": { "include": [${include}], "exclude": [] } },
+  "conditions": { "ref_name": { "include": [$(json_string "${ref}")], "exclude": [] } },
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
@@ -149,10 +174,10 @@ EOF
 
 # PR 必須 + squash のみ + 必須ステータスチェック + 削除/force push 禁止
 apply_ruleset "tutorial-protect-main" \
-  "$(branch_ruleset_body "tutorial-protect-main" '"~DEFAULT_BRANCH"')"
+  "$(branch_ruleset_body "tutorial-protect-main" "~DEFAULT_BRANCH")"
 # release/*: main と同等の保護 (バックポートも PR 経由を強制)
 apply_ruleset "tutorial-protect-release-branches" \
-  "$(branch_ruleset_body "tutorial-protect-release-branches" '"refs/heads/release/**"')"
+  "$(branch_ruleset_body "tutorial-protect-release-branches" "refs/heads/release/**")"
 
 # v* タグ: 公開済みタグの削除・付け替えを禁止
 apply_ruleset "tutorial-protect-release-tags" "$(cat <<EOF
@@ -179,7 +204,7 @@ is_wanted_ruleset() {
 
 # 旧世代の tutorial-* が残っていれば削除する。適用の「後」に行うため、
 # 保護が外れる時間帯は生じない。
-while read -r ID NAME; do
+while IFS=$'\t' read -r ID NAME; do
   [[ -n "${NAME}" ]] || continue
   [[ "${NAME}" == tutorial-* ]] || continue
   if ! is_wanted_ruleset "${NAME}"; then
@@ -189,12 +214,16 @@ while read -r ID NAME; do
 done <<< "${EXISTING_RULESETS}"
 
 # 期待した Ruleset が実際に存在するか、API を読み直して検証する。
-APPLIED=$(gh api "repos/${REPO}/rulesets" -q '.[].name')
+# 同名が複数あると保護が二重にかかったまま気付けないため、"1 件以上" ではなく
+# "ちょうど 1 件" を確認する。
+APPLIED=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[].name')
 for NAME in "${RULESET_NAMES[@]}"; do
-  grep -qxF "${NAME}" <<< "${APPLIED}" || {
-    echo "ERROR: Ruleset '${NAME}' の適用を確認できませんでした" >&2
+  COUNT=$(grep -cxF "${NAME}" <<< "${APPLIED}" || true)
+  if [[ "${COUNT}" -ne 1 ]]; then
+    echo "ERROR: Ruleset '${NAME}' が ${COUNT} 件あります (期待: 1 件)" >&2
+    echo "       GitHub の Settings > Rules から重複を確認してください" >&2
     exit 1
-  }
+  fi
 done
 
 echo ""
