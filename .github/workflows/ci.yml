@@ -1,7 +1,7 @@
 # PR に対する CI。
 # ジョブ名 (pr-title / frontend / backend) は Rulesets の
 # required_status_checks の context と一致させているため、変更時は
-# scripts/setup-github.sh 側も更新すること。
+# scripts/setup-github.sh の STATUS_CHECK_CONTEXTS も更新すること。
 name: CI
 
 on:
