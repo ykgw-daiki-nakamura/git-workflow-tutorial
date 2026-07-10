@@ -20,6 +20,7 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 ├── backend/      # FastAPI + Lambda Web Adapter。APP_VERSION / GIT_SHA はビルド時に焼き込み
 ├── terraform/    # ECR / OIDC ロール×3 / Lambda×3 / S3×3 / CloudFront×3
 ├── scripts/      # bootstrap-image.sh / setup-github.sh / sync-github-vars.sh
+├── .devcontainer/ # Node 22 / Python 3.12 / uv / Terraform / AWS CLI / gh / docker-in-docker
 └── .github/
     └── workflows/
         ├── ci.yml           # PR: タイトル検証 (Conventional Commits) + frontend/backend チェック
@@ -45,7 +46,10 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 
 ## セットアップ手順
 
-前提: AWS 認証情報、Terraform >= 1.7、Docker、gh CLI (ログイン済み)、jq、Node 22、uv。
+前提: **AWS 認証情報のみ**。Terraform / Docker / gh CLI / jq / Node 22 / uv は
+[`.devcontainer/`](./.devcontainer/) に揃っているので、Codespaces か VS Code の
+*Reopen in Container* で開いてください。devcontainer を使わない場合は自分で用意します
+(詳細は [第0章](./docs/00-setup.md))。
 
 > [!IMPORTANT]
 > Rulesets と Environment 保護ルールを無料で使うには**パブリックリポジトリ**にするか、

@@ -5,17 +5,56 @@ AWS リソースの作成と GitHub 側の設定を行います。CloudFront の
 
 ## 0.1 前提条件
 
-以下がローカルにあることを確認してください。
+このリポジトリには devcontainer が入っています。**自分で用意するのは AWS アカウントと
+認証情報だけ**で、Terraform / Docker / jq / gh / Node 22 / uv はコンテナ側に揃っています。
+
+次のどちらかで開いてください。
+
+- GitHub の **Code → Codespaces → Create codespace**
+- 手元に clone して VS Code で開き、**Reopen in Container**
+
+コンテナが立ち上がったら、ツールが揃っていることを確認します。
+
+```bash
+node -v            # v22.x
+terraform version  # 1.7 以上
+aws --version
+uv --version
+```
+
+### AWS 認証情報を渡す
+
+| 開き方 | 渡し方 |
+|---|---|
+| ローカルの VS Code | ホストの `~/.aws` が読み取り専用でマウントされます。何もしなくて OK |
+| Codespaces | リポジトリの **Settings → Secrets and variables → Codespaces** に `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` を登録 (一時認証情報なら `AWS_SESSION_TOKEN` も) |
+
+`aws sts get-caller-identity` が通れば準備完了です。
+
+> [!IMPORTANT]
+> Rulesets と Environment 保護ルールを無料プランで使うには、リポジトリを
+> **パブリック**にする必要があります。プライベートで演習したい場合は
+> GitHub Team 以上のプランの Organization を使ってください。
+
+> [!WARNING]
+> Codespaces に既定で入っている `gh` のトークンには Rulesets を作る権限がありません。
+> 0.4 の `setup-github.sh` を実行する前に `gh auth login` でログインし直してください
+> (Authenticate Git → はい、スコープは既定のままで構いません)。
+
+<details>
+<summary>▶ devcontainer を使わず、ローカルに直接そろえる場合</summary>
+
+以下をインストールしてください。
 
 - AWS アカウントと認証情報 (`aws sts get-caller-identity` が通ること)
 - Terraform >= 1.7 / Docker / jq
 - gh CLI (`gh auth status` でログイン済みであること)
 - Node.js 22 / [uv](https://docs.astral.sh/uv/)
 
-> [!IMPORTANT]
-> Rulesets と Environment 保護ルールを無料プランで使うには、リポジトリを
-> **パブリック**にする必要があります。プライベートで演習したい場合は
-> GitHub Team 以上のプランの Organization を使ってください。
+Node のバージョンは CI (`.github/workflows/ci.yml`) と揃えてください。ズレていると
+「手元では通るのに CI で落ちる」が起きます。
+
+</details>
 
 ## 0.2 リポジトリの作成
 

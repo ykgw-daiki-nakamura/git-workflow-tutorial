@@ -16,7 +16,10 @@ aws ecr get-login-password --region "${REGION}" \
   | docker login --username AWS --password-stdin "${REGISTRY}"
 
 echo "==> build & push ${REPO_URL}:bootstrap"
+# Lambda は x86_64 固定 (terraform/lambda.tf) なので、Apple Silicon などの
+# arm64 ホストでも amd64 イメージを作る。外すと Lambda が起動しない。
 docker build \
+  --platform linux/amd64 \
   --build-arg APP_VERSION=bootstrap \
   --build-arg GIT_SHA=bootstrap \
   -t "${REPO_URL}:bootstrap" backend
