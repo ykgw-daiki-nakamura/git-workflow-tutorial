@@ -66,7 +66,7 @@ json_string() {
 
 # main / release/* の Ruleset が要求する必須ステータスチェック。
 # .github/workflows/ci.yml のジョブ名と一致させること。ここが唯一の定義元。
-STATUS_CHECK_CONTEXTS=(pr-title frontend backend)
+STATUS_CHECK_CONTEXTS=(pr-title frontend backend shellcheck)
 
 # 空のまま Ruleset を作ると「CI なしでマージできる main」になる。
 # printf は引数 0 個でも %s を 1 回展開するため、ここで弾かないと

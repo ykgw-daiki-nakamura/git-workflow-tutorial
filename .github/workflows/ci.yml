@@ -40,6 +40,19 @@ jobs:
           # 日本語 subject を許可(大文字小文字チェックを無効化)
           subjectPattern: ^.+$
 
+  # scripts/ と .devcontainer/ の shell を静的検査する。
+  # これらは GitHub の保護設定を書き換えたり ECR へ push したりするため、
+  # レビューだけに頼らず機械的に弾けるものは弾く。
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck は GitHub の ubuntu ランナーに同梱されている
+      - run: shellcheck --version
+      # -x: source されるファイル (scripts/lib/preflight.sh) も追跡する
+      - run: shellcheck -x scripts/*.sh scripts/lib/*.sh .devcontainer/*.sh
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
