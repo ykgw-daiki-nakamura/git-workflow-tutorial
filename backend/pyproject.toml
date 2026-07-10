@@ -19,3 +19,6 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# app/ は配布パッケージではなく、cwd 経由で import される (Dockerfile も同様)。
+# pytest にも同じ import 環境を与える。
+pythonpath = ["."]
