@@ -9,7 +9,8 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=scripts/lib/preflight.sh
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
 cd "${SCRIPT_DIR}/.."
 

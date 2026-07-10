@@ -18,7 +18,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=scripts/lib/preflight.sh
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
 # gh repo view は cwd の git remote から対象を決めるため、呼び出し元の
 # ディレクトリに引きずられないようリポジトリルートへ移動する。
