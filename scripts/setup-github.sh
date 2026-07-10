@@ -14,7 +14,8 @@
 #
 # 対象リポジトリは既定でこのスクリプトを含むリポジトリ。GH_REPO で上書きできる。
 # 非対話実行では確認プロンプトを省略する (SETUP_GITHUB_YES=1 でも省略可)。
-set -euo pipefail
+# -E: ERR trap を関数内にも継承させる (apply_ruleset の失敗を捕捉するため)
+set -Eeuo pipefail
 
 # gh repo view は cwd の git remote から対象を決めるため、呼び出し元の
 # ディレクトリに引きずられないようリポジトリルートへ移動する。
@@ -70,14 +71,17 @@ esac
 
 REVIEWER_ID=$(gh api "users/${REVIEWER_LOGIN}" -q .id)
 
-# [3/4] で Ruleset を削除するため、対象を取り違えていないか事前に確認させる。
+# 途中で落ちたときに、設定が中途半端な状態であることを利用者へ伝える。
+trap 'echo "ERROR: 設定の適用が中断されました。保護が不完全な可能性があります。再実行してください" >&2' ERR
+
+# 対象を取り違えていないか事前に確認させる。
 echo "対象リポジトリ: ${REPO} (mode=${MODE}, reviewer=${REVIEWER_LOGIN})"
 if [[ -t 0 && "${SETUP_GITHUB_YES:-}" != "1" ]]; then
   read -rp "この内容で適用しますか? [y/N] " ANSWER
   [[ "${ANSWER}" == [yY] ]] || { echo "中止しました" >&2; exit 1; }
 fi
 
-echo "==> [1/4] マージ方式: squash merge のみ・タイトル=PRタイトル"
+echo "==> [1/3] マージ方式: squash merge のみ・タイトル=PRタイトル"
 gh api -X PATCH "repos/${REPO}" \
   -F allow_merge_commit=false \
   -F allow_rebase_merge=false \
@@ -86,7 +90,7 @@ gh api -X PATCH "repos/${REPO}" \
   -f squash_merge_commit_message=PR_BODY \
   -F delete_branch_on_merge=true > /dev/null
 
-echo "==> [2/4] Environments: dev / staging / production"
+echo "==> [2/3] Environments: dev / staging / production"
 gh api -X PUT "repos/${REPO}/environments/dev" > /dev/null
 gh api -X PUT "repos/${REPO}/environments/staging" > /dev/null
 # production のみ必須レビュアー承認を要求 (GA デプロイの承認ゲート)
@@ -98,21 +102,45 @@ gh api -X PUT "repos/${REPO}/environments/production" \
 }
 EOF
 
-echo "==> [3/4] 既存の同名 Rulesets を削除 (再実行時の重複防止)"
-for ID in $(gh api "repos/${REPO}/rulesets" \
-  -q '.[] | select(.name | startswith("tutorial-")) | .id'); do
-  gh api -X DELETE "repos/${REPO}/rulesets/${ID}" > /dev/null
-  echo "    deleted ruleset ${ID}"
-done
+echo "==> [3/3] Rulesets を適用"
 
-echo "==> [4/4] Rulesets を作成"
+# 適用対象。ここに無い tutorial-* は古い世代とみなし、適用後に削除する。
+RULESET_NAMES=(
+  tutorial-protect-main
+  tutorial-protect-release-branches
+  tutorial-protect-release-tags
+)
+
+# "<id>\t<name>" の一覧。同名 Ruleset があれば作成ではなく更新する。
+# Ruleset 名には空白を含められるため、区切りはタブ。--paginate が無いと
+# 既定の 1 ページ分しか見えず、既存を見落として重複作成しうる。
+EXISTING_RULESETS=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[] | [.id, .name] | @tsv')
+
+ruleset_id() {
+  awk -F'\t' -v name="$1" '$2 == name { print $1; exit }' <<< "${EXISTING_RULESETS}"
+}
+
+# 同名があれば PUT で上書き、無ければ POST で作成する。
+# 「削除してから作成」にすると失敗時に main が無保護のまま残るため、
+# 保護が外れる瞬間を作らない。
+apply_ruleset() {
+  local name="$1" body="$2" id
+  id=$(ruleset_id "${name}")
+  if [[ -n "${id}" ]]; then
+    gh api -X PUT "repos/${REPO}/rulesets/${id}" --input - > /dev/null <<< "${body}"
+    echo "    ${name} (updated)"
+  else
+    gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<< "${body}"
+    echo "    ${name} (created)"
+  fi
+}
 
 # main と release/* に同一の保護をかける。ブランチ条件だけが異なる。
 # ref は素の文字列で受け取り、JSON 化はこの関数が担う。呼び出し側に
 # クォートを任せると、付け忘れが不正な JSON になって初めて分かる。
-create_branch_ruleset() {
+branch_ruleset_body() {
   local name="$1" ref="$2"
-  gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
+  cat <<EOF
 {
   "name": "${name}",
   "target": "branch",
@@ -142,16 +170,17 @@ create_branch_ruleset() {
   ]
 }
 EOF
-  echo "    ${name}"
 }
 
 # PR 必須 + squash のみ + 必須ステータスチェック + 削除/force push 禁止
-create_branch_ruleset "tutorial-protect-main" "~DEFAULT_BRANCH"
+apply_ruleset "tutorial-protect-main" \
+  "$(branch_ruleset_body "tutorial-protect-main" "~DEFAULT_BRANCH")"
 # release/*: main と同等の保護 (バックポートも PR 経由を強制)
-create_branch_ruleset "tutorial-protect-release-branches" "refs/heads/release/**"
+apply_ruleset "tutorial-protect-release-branches" \
+  "$(branch_ruleset_body "tutorial-protect-release-branches" "refs/heads/release/**")"
 
 # v* タグ: 公開済みタグの削除・付け替えを禁止
-gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
+apply_ruleset "tutorial-protect-release-tags" "$(cat <<EOF
 {
   "name": "tutorial-protect-release-tags",
   "target": "tag",
@@ -163,7 +192,39 @@ gh api -X POST "repos/${REPO}/rulesets" --input - > /dev/null <<EOF
   ]
 }
 EOF
-echo "    tutorial-protect-release-tags"
+)"
+
+is_wanted_ruleset() {
+  local name="$1" keep
+  for keep in "${RULESET_NAMES[@]}"; do
+    [[ "${name}" == "${keep}" ]] && return 0
+  done
+  return 1
+}
+
+# 旧世代の tutorial-* が残っていれば削除する。適用の「後」に行うため、
+# 保護が外れる時間帯は生じない。
+while IFS=$'\t' read -r ID NAME; do
+  [[ -n "${NAME}" ]] || continue
+  [[ "${NAME}" == tutorial-* ]] || continue
+  if ! is_wanted_ruleset "${NAME}"; then
+    gh api -X DELETE "repos/${REPO}/rulesets/${ID}" > /dev/null
+    echo "    ${NAME} (deleted: 旧世代)"
+  fi
+done <<< "${EXISTING_RULESETS}"
+
+# 期待した Ruleset が実際に存在するか、API を読み直して検証する。
+# 同名が複数あると保護が二重にかかったまま気付けないため、"1 件以上" ではなく
+# "ちょうど 1 件" を確認する。
+APPLIED=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[].name')
+for NAME in "${RULESET_NAMES[@]}"; do
+  COUNT=$(grep -cxF "${NAME}" <<< "${APPLIED}" || true)
+  if [[ "${COUNT}" -ne 1 ]]; then
+    echo "ERROR: Ruleset '${NAME}' が ${COUNT} 件あります (期待: 1 件)" >&2
+    echo "       GitHub の Settings > Rules から重複を確認してください" >&2
+    exit 1
+  fi
+done
 
 echo ""
 echo "完了 (mode=${MODE}, repo=${REPO})"
