@@ -25,10 +25,34 @@ source "${SCRIPT_DIR}/lib/preflight.sh"
 # ディレクトリに引きずられないようリポジトリルートへ移動する。
 cd "${SCRIPT_DIR}/.."
 
+# 引数の検証は前提チェックより先に行う。引数なしで実行したときに
+# 「gh が未ログイン」と出ると、直すべき箇所が分からない。
+MODE="${1:?usage: setup-github.sh solo | pair <reviewer-login>}"
+case "${MODE}" in
+  solo)
+    APPROVALS=0
+    PREVENT_SELF_REVIEW=false
+    ;;
+  pair)
+    APPROVALS=1
+    REVIEWER_LOGIN="${2:?pair モードではレビュアーの GitHub ログイン名を指定してください}"
+    PREVENT_SELF_REVIEW=true
+    ;;
+  *)
+    echo "unknown mode: ${MODE}" >&2
+    exit 1
+    ;;
+esac
+
 require_cmd gh
 require_gh_auth
 
-MODE="${1:?usage: setup-github.sh solo | pair <reviewer-login>}"
+# solo は自分自身をレビュアーにする。gh 認証後でないと引けないため、
+# モード判定とは別に、前提チェックを通してから解決する。
+if [[ "${MODE}" == solo ]]; then
+  REVIEWER_LOGIN=$(gh api user -q .login)
+fi
+
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 # 文字列を JSON 文字列リテラルにする。GitHub のジョブ名には空白や記号を
@@ -58,23 +82,6 @@ for CONTEXT in "${STATUS_CHECK_CONTEXTS[@]}"; do
   STATUS_CHECK_ITEMS+=("{ \"context\": $(json_string "${CONTEXT}") }")
 done
 STATUS_CHECKS_JSON=$(IFS=,; printf '[%s]' "${STATUS_CHECK_ITEMS[*]}")
-
-case "${MODE}" in
-  solo)
-    APPROVALS=0
-    REVIEWER_LOGIN=$(gh api user -q .login)
-    PREVENT_SELF_REVIEW=false
-    ;;
-  pair)
-    APPROVALS=1
-    REVIEWER_LOGIN="${2:?pair モードではレビュアーの GitHub ログイン名を指定してください}"
-    PREVENT_SELF_REVIEW=true
-    ;;
-  *)
-    echo "unknown mode: ${MODE}" >&2
-    exit 1
-    ;;
-esac
 
 REVIEWER_ID=$(gh api "users/${REVIEWER_LOGIN}" -q .id)
 
