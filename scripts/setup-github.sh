@@ -111,11 +111,13 @@ RULESET_NAMES=(
   tutorial-protect-release-tags
 )
 
-# "<id> <name>" の一覧。同名 Ruleset があれば作成ではなく更新する。
-EXISTING_RULESETS=$(gh api "repos/${REPO}/rulesets" -q '.[] | "\(.id) \(.name)"')
+# "<id>\t<name>" の一覧。同名 Ruleset があれば作成ではなく更新する。
+# Ruleset 名には空白を含められるため、区切りはタブ。--paginate が無いと
+# 既定の 1 ページ分しか見えず、既存を見落として重複作成しうる。
+EXISTING_RULESETS=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[] | [.id, .name] | @tsv')
 
 ruleset_id() {
-  awk -v name="$1" '$2 == name { print $1; exit }' <<< "${EXISTING_RULESETS}"
+  awk -F'\t' -v name="$1" '$2 == name { print $1; exit }' <<< "${EXISTING_RULESETS}"
 }
 
 # 同名があれば PUT で上書き、無ければ POST で作成する。
@@ -202,7 +204,7 @@ is_wanted_ruleset() {
 
 # 旧世代の tutorial-* が残っていれば削除する。適用の「後」に行うため、
 # 保護が外れる時間帯は生じない。
-while read -r ID NAME; do
+while IFS=$'\t' read -r ID NAME; do
   [[ -n "${NAME}" ]] || continue
   [[ "${NAME}" == tutorial-* ]] || continue
   if ! is_wanted_ruleset "${NAME}"; then
@@ -212,12 +214,16 @@ while read -r ID NAME; do
 done <<< "${EXISTING_RULESETS}"
 
 # 期待した Ruleset が実際に存在するか、API を読み直して検証する。
-APPLIED=$(gh api "repos/${REPO}/rulesets" -q '.[].name')
+# 同名が複数あると保護が二重にかかったまま気付けないため、"1 件以上" ではなく
+# "ちょうど 1 件" を確認する。
+APPLIED=$(gh api "repos/${REPO}/rulesets" --paginate -q '.[].name')
 for NAME in "${RULESET_NAMES[@]}"; do
-  grep -qxF "${NAME}" <<< "${APPLIED}" || {
-    echo "ERROR: Ruleset '${NAME}' の適用を確認できませんでした" >&2
+  COUNT=$(grep -cxF "${NAME}" <<< "${APPLIED}" || true)
+  if [[ "${COUNT}" -ne 1 ]]; then
+    echo "ERROR: Ruleset '${NAME}' が ${COUNT} 件あります (期待: 1 件)" >&2
+    echo "       GitHub の Settings > Rules から重複を確認してください" >&2
     exit 1
-  }
+  fi
 done
 
 echo ""
