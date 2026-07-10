@@ -44,7 +44,7 @@ git push origin v1.0.0-rc.1
 
 Actions で `Release RC` が起動します。実行内容をログで追ってください:
 
-1. **Verify tag points to a release/* branch** — RC タグが release ブランチ上の
+1. **Verify tag points to a release/\* branch** — RC タグが release ブランチ上の
    コミットであることの検証。💥 試しに main 上のコミットに `v9.9.9-rc.1` を
    打って push すると、ここで fail します (確認したらワークフローは失敗のまま
    でよいので、ローカルとリモートのタグを `git push --delete origin v9.9.9-rc.1`
