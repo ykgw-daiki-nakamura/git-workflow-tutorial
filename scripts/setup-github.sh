@@ -10,8 +10,15 @@
 #   - production Environment: 自分を必須レビュアーにし self-review を許可
 # ペアモードでは規約どおりの設定になる。
 #
-# 前提: gh CLI ログイン済み、カレントリポジトリで実行 (または GH_REPO を設定)
+# 前提: gh CLI ログイン済み
+#
+# 対象リポジトリは既定でこのスクリプトを含むリポジトリ。GH_REPO で上書きできる。
+# 非対話実行では確認プロンプトを省略する (SETUP_GITHUB_YES=1 でも省略可)。
 set -euo pipefail
+
+# gh repo view は cwd の git remote から対象を決めるため、呼び出し元の
+# ディレクトリに引きずられないようリポジトリルートへ移動する。
+cd "$(dirname "$0")/.."
 
 MODE="${1:?usage: setup-github.sh solo | pair <reviewer-login>}"
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -34,6 +41,13 @@ case "${MODE}" in
 esac
 
 REVIEWER_ID=$(gh api "users/${REVIEWER_LOGIN}" -q .id)
+
+# [3/4] で Ruleset を削除するため、対象を取り違えていないか事前に確認させる。
+echo "対象リポジトリ: ${REPO} (mode=${MODE}, reviewer=${REVIEWER_LOGIN})"
+if [[ -t 0 && "${SETUP_GITHUB_YES:-}" != "1" ]]; then
+  read -rp "この内容で適用しますか? [y/N] " ANSWER
+  [[ "${ANSWER}" == [yY] ]] || { echo "中止しました" >&2; exit 1; }
+fi
 
 echo "==> [1/4] マージ方式: squash merge のみ・タイトル=PRタイトル"
 gh api -X PATCH "repos/${REPO}" \
