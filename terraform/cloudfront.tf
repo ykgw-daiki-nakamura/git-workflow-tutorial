@@ -3,7 +3,11 @@
 #   /api/*           -> Lambda Function URL
 # フロントと API を同一ドメインに載せることで CORS 設定を不要にしている。
 resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "${var.project_name}-frontend-oac"
+  # OAC 名はアカウント内で一意である必要がある。1 アカウントを複数人で共有する場合、
+  # ここが project_name のままだと 2 人目の apply が衝突する。
+  # なお OAC は CloudFront 側がタグに対応しておらず、最小権限ポリシーでも
+  # 所有者ごとに絞れない唯一のリソース (docs/00-setup.md に明記)。
+  name                              = "${local.name_prefix}-frontend-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -26,7 +30,7 @@ resource "aws_cloudfront_distribution" "app" {
   for_each = local.environments
 
   enabled             = true
-  comment             = "${var.project_name} ${each.key}"
+  comment             = "${local.name_prefix} ${each.key}"
   default_root_object = "index.html"
   price_class         = "PriceClass_200" # 日本を含むエッジのみ
 

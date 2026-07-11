@@ -14,7 +14,12 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project   = var.project_name
+      Project = var.project_name
+      # 名前でリソースを絞れないサービス (CloudFront) を、最小権限ポリシーが
+      # aws:ResourceTag / aws:RequestTag で絞るために使う。値を変えると
+      # docs/assets/setup-policy.template.json から生成したポリシーと食い違い、
+      # apply が AccessDenied になる。
+      Owner     = var.owner
       ManagedBy = "terraform"
       Purpose   = "git-workflow-tutorial"
     }
@@ -47,4 +52,9 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id   = data.aws_caller_identity.current.account_id
   environments = toset(["dev", "staging", "production"])
+
+  # 全リソース名の共通プレフィックス。1 つの AWS アカウントを複数人で共有しても
+  # owner が違えば名前空間が分かれ、最小権限ポリシーがこのプレフィックスで
+  # 「自分のリソースだけ」に許可を絞れる (docs/00-setup.md の「必要な権限」)。
+  name_prefix = "${var.project_name}-${var.owner}"
 }

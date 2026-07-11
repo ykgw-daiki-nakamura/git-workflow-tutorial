@@ -1,5 +1,5 @@
 resource "aws_ecr_repository" "backend" {
-  name         = "${var.project_name}-backend"
+  name         = "${local.name_prefix}-backend"
   force_delete = true # チュートリアル用。destroy 時にイメージごと削除する
 
   # IMMUTABLE: 既存タグの上書き push を禁止する。

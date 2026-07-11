@@ -62,7 +62,8 @@ Terraform / Docker / gh CLI / jq / Node 22 / uv は
 # 1. Terraform 変数を設定
 cd terraform
 cat > terraform.tfvars <<EOF
-github_repository = "<owner>/<repo>"
+github_repository = "<GitHubアカウント>/<リポジトリ名>"
+owner             = "<自分の識別子>"   # リソース名とタグに入る。1 アカウントを複数人で共有する場合はここで分ける
 # project_name / aws_region は必要に応じて上書き
 EOF
 
