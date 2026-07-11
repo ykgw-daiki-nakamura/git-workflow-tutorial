@@ -8,22 +8,27 @@
 #   - Owner タグ                                          (CloudFront。名前で絞れないため)
 # どちらも terraform 側 (local.name_prefix と provider の default_tags) と対になっている。
 #
+# 生成するだけで、IAM への登録はしない。登録・更新・アタッチまで面倒を見るのは
+# apply-setup-policy.sh (こちらを内部で呼ぶ)。
+#
 # 使い方:
 #   ./scripts/gen-setup-policy.sh <owner> [project_name] > setup-policy.json
 #
-# 生成物の登録方法と、絞りきれない箇所については docs/00-setup.md の「必要な権限」を参照。
+# 絞りきれない箇所については docs/00-setup.md の「必要な権限」を参照。
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/preflight.sh
 source "${SCRIPT_DIR}/lib/preflight.sh"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/naming.sh
+source "${SCRIPT_DIR}/lib/naming.sh"
 cd "${SCRIPT_DIR}/.."
 
 require_cmd jq
 
 TEMPLATE="docs/assets/setup-policy.template.json"
-VARIABLES_TF="terraform/variables.tf"
 
 usage() {
   cat >&2 <<'EOF'
@@ -39,60 +44,12 @@ usage() {
 EOF
 }
 
-OWNER=${1:-}
-if [[ -z ${OWNER} ]]; then
+if [[ -z ${1:-} ]]; then
   usage
   exit 1
 fi
 
-# owner の書式は terraform 側の variable "owner" の validation と同じ規則。
-# ここで弾いておかないと、ポリシーだけ先に作れて apply で初めて落ちる。
-if ! [[ ${OWNER} =~ ^[a-z0-9]([a-z0-9-]{0,11}[a-z0-9])?$ ]]; then
-  echo "ERROR: owner が不正です: '${OWNER}'" >&2
-  echo "       英小文字・数字・ハイフンのみ、1〜13 文字 (先頭と末尾はハイフン不可)" >&2
-  exit 1
-fi
-
-# project_name の既定値は terraform/variables.tf を唯一の定義元とする。
-# ここに独自の既定値を書くと、terraform 側を変えたときに黙ってズレ、
-# 「ポリシーは gitflow-tutorial-*、実際のリソースは別名」で AccessDenied になる。
-default_project_name() {
-  awk '
-    /^variable "project_name"/ { in_block = 1; next }
-    in_block && $1 == "default" { gsub(/"/, "", $3); print $3; exit }
-    in_block && /^}/            { exit }
-  ' "${VARIABLES_TF}"
-}
-
-PROJECT_NAME=${2:-$(default_project_name)}
-if [[ -z ${PROJECT_NAME} ]]; then
-  echo "ERROR: ${VARIABLES_TF} から project_name の既定値を読み取れません" >&2
-  echo "       第 2 引数で明示してください: ./scripts/gen-setup-policy.sh ${OWNER} <project_name>" >&2
-  exit 1
-fi
-
-# owner と同じ文字種に制限する。ECR / S3 / Lambda の名前に入る以上どのみち必要な制約だが、
-# ここでは sed の安全性も兼ねている: '/' は区切り文字と衝突し、'&' は置換先で
-# 「マッチ全体」に化けるため、素通しにすると黙って壊れたポリシーが出来上がる。
-if ! [[ ${PROJECT_NAME} =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
-  echo "ERROR: project_name が不正です: '${PROJECT_NAME}'" >&2
-  echo "       英小文字・数字・ハイフンのみ (先頭と末尾はハイフン不可)" >&2
-  exit 1
-fi
-
-PREFIX="${PROJECT_NAME}-${OWNER}"
-
-# S3 バケット名 (63 文字) が最も厳しい制約。terraform の s3.tf も同じ検査をするが、
-# あちらは apply 時。ポリシーを配る前に気付けるよう、ここでも見る。
-# 末尾はグローバル一意化のためのアカウント ID 12 桁。
-BUCKET_SUFFIX="-production-frontend-" # 環境名は production が最長
-LONGEST_BUCKET_LEN=$(( ${#PREFIX} + ${#BUCKET_SUFFIX} + 12 ))
-if (( LONGEST_BUCKET_LEN > 63 )); then
-  echo "ERROR: S3 バケット名が ${LONGEST_BUCKET_LEN} 文字になり、63 文字を超えます" >&2
-  echo "       ('${PREFIX}-production-frontend-<アカウントID>')" >&2
-  echo "       owner か project_name を短くしてください" >&2
-  exit 1
-fi
+resolve_naming "$@"
 
 if [[ ! -f ${TEMPLATE} ]]; then
   echo "ERROR: テンプレートが見つかりません: ${TEMPLATE}" >&2
@@ -100,7 +57,7 @@ if [[ ! -f ${TEMPLATE} ]]; then
 fi
 
 # _comment はテンプレートの読み手向け。IAM は不明なトップレベルキーを拒否するため落とす。
-# owner / project_name は上で書式検証済みなので、sed を壊す文字は入らない。
+# owner / project_name は resolve_naming が書式検証済みなので、sed を壊す文字は入らない。
 POLICY=$(
   sed -e "s/__PREFIX__/${PREFIX}/g" -e "s/__OWNER__/${OWNER}/g" "${TEMPLATE}" \
     | jq 'del(._comment)'
@@ -122,15 +79,9 @@ cat >&2 <<EOF
 このポリシーで触れるのは ${PREFIX}-* という名前のリソースと、
 Owner=${OWNER} タグの付いた CloudFront ディストリビューションだけです。
 
-登録するには、管理者権限のある認証情報で:
+IAM への登録とアタッチは、管理者権限のある認証情報で:
 
-  aws iam create-policy \\
-    --policy-name ${PREFIX}-setup \\
-    --policy-document file://<このスクリプトの出力を保存したファイル>
-
-  aws iam attach-user-policy \\
-    --user-name <IAM ユーザー名> \\
-    --policy-arn arn:aws:iam::<アカウントID>:policy/${PREFIX}-setup
+  ./scripts/apply-setup-policy.sh ${OWNER}
 
 参加者側の terraform.tfvars には owner = "${OWNER}" を書いてください。
 EOF

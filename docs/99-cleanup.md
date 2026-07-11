@@ -76,6 +76,13 @@ for OWNER in alice bob carol; do
     | xargs -r -I{} aws iam delete-access-key --user-name "${OWNER}" --access-key-id {}
 
   aws iam detach-user-policy --user-name "${OWNER}" --policy-arn "${POLICY_ARN}"
+
+  # ポリシーは既定以外のバージョンが残っていると削除できない。
+  # apply-setup-policy.sh で貼り直していると版が増えているので、先に消す
+  aws iam list-policy-versions --policy-arn "${POLICY_ARN}" \
+    --query 'Versions[?!IsDefaultVersion].VersionId' --output text | tr '\t' '\n' \
+    | xargs -r -I{} aws iam delete-policy-version --policy-arn "${POLICY_ARN}" --version-id {}
+
   aws iam delete-policy --policy-arn "${POLICY_ARN}"
   aws iam delete-user --user-name "${OWNER}"
 done
