@@ -4,6 +4,24 @@
 # 前提が満たされないまま進むと、依存ツールの生のエラーが処理の途中で出る。
 # 何を直せばよいかが分かるメッセージを、副作用が起きる前に出すのが目的。
 
+# devcontainer の remoteEnv は、ホストで未設定の ${localEnv:X} を「空文字列」として
+# 注入する (行が消えるわけではない)。空の AWS_PROFILE が残っていると aws / terraform は
+# 空の名前をそのまま使い "The config profile () could not be found" で失敗する。
+#
+# 同じ除去を post-create.sh が ~/.bashrc にも仕込むが、あちらは対話シェル専用。
+# Ubuntu の ~/.bashrc は冒頭で「非対話シェルなら return」するため、スクリプト実行時には
+# 効かない。スクリプトは自分で面倒を見る必要がある。source した時点で実行する。
+strip_empty_aws_env() {
+  local v
+  for v in AWS_PROFILE AWS_REGION AWS_SESSION_TOKEN AWS_SDK_LOAD_CONFIG \
+           AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+    if [[ -n ${!v+x} && -z ${!v} ]]; then
+      unset "${v}"
+    fi
+  done
+}
+strip_empty_aws_env
+
 # 必要なコマンドが PATH にあるか。足りないものをまとめて報告する。
 require_cmd() {
   local missing=() cmd

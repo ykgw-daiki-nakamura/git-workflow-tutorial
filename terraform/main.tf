@@ -19,6 +19,27 @@ provider "aws" {
       Purpose   = "git-workflow-tutorial"
     }
   }
+
+  # 組織のタグポリシーが自動付与するガバナンスタグ。設定には書かないため、
+  # 放っておくと Terraform が毎回「設定に無い = 削除」と判断し、組織側が再付与し、
+  # plan が永久に汚れ続ける (かつタグガバナンスにも反する)。管理対象外として無視する。
+  # 自前の AWS アカウントではこれらのタグは付かないので、指定しても実害はない。
+  ignore_tags {
+    keys = [
+      "App",
+      "Application",
+      "Company",
+      "CostCenter",
+      "Department",
+      "Division",
+      "Environment",
+      "IntraConnected",
+      "PrimaryOwner",
+      "SecondaryOwner",
+      "System",
+      "UsageScope",
+    ]
+  }
 }
 
 data "aws_caller_identity" "current" {}

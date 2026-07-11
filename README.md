@@ -46,7 +46,8 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 
 ## セットアップ手順
 
-前提: **AWS 認証情報のみ**。Terraform / Docker / gh CLI / jq / Node 22 / uv は
+前提: **AWS 認証情報のみ** (取得方法は [第0章 0.1](./docs/00-setup.md#aws-認証情報を取得する))。
+Terraform / Docker / gh CLI / jq / Node 22 / uv は
 [`.devcontainer/`](./.devcontainer/) に揃っているので、Codespaces か VS Code の
 *Reopen in Container* で開いてください。devcontainer を使わない場合は自分で用意します
 (詳細は [第0章](./docs/00-setup.md))。
