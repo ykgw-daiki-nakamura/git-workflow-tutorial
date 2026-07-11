@@ -22,14 +22,125 @@ aws --version
 uv --version
 ```
 
+### AWS 認証情報を取得する
+
+まだ AWS の認証情報を持っていない場合は、ここで発行します。**すでに
+`aws sts get-caller-identity` が通る環境がある人は、この節を飛ばして
+「AWS 認証情報を渡す」へ進んでください。**
+
+発行元は、所属組織が AWS IAM Identity Center (旧 AWS SSO) を使っているかどうかで
+決まります。会社から「AWS のアクセスポータル」の URL を渡されているなら A、
+個人アカウントで演習するなら B です。
+
+<details>
+<summary>▶ <b>A. IAM Identity Center (組織のアカウントを使う場合)</b></summary>
+
+こちらは**有効期限つきの一時認証情報**なので、`AWS_SESSION_TOKEN` がセットで必要です。
+
+1. 組織のアクセスポータル (`https://<組織名>.awsapps.com/start`) にログイン
+2. 演習に使う AWS アカウント → 権限セットの行を開く
+3. **Access keys** をクリックすると、`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
+   `AWS_SESSION_TOKEN` の 3 つが表示されます。これをコピーして使います
+
+ローカルで開く場合は、コピーする代わりにプロファイルを作っておくほうが
+期限切れのたびに貼り直さずに済みます。
+
+```bash
+aws configure sso          # SSO start URL / リージョン / アカウント / 権限セットを対話で選ぶ
+aws sso login --profile <作ったプロファイル名>
+export AWS_PROFILE=<作ったプロファイル名>
+```
+
+</details>
+
+<details>
+<summary>▶ <b>B. IAM ユーザーのアクセスキー (個人の AWS アカウントで演習する場合)</b></summary>
+
+1. AWS マネジメントコンソール → **IAM** → **ユーザー** → **ユーザーを作成**
+2. ユーザー名は任意 (例: `gitflow-tutorial`)。コンソールへのアクセスは不要
+3. 許可のオプションで **ポリシーを直接アタッチする** を選び、権限を付ける
+   (下の「必要な権限」を参照)
+4. 作成後、そのユーザーの **セキュリティ認証情報** タブ → **アクセスキーを作成**
+5. ユースケースは **コマンドラインインターフェイス (CLI)** を選択
+6. 表示された `AWS_ACCESS_KEY_ID` と `AWS_SECRET_ACCESS_KEY` をコピー
+   (**シークレットキーはこの画面でしか表示されません**)
+
+このキーは期限のない長期認証情報なので、`AWS_SESSION_TOKEN` は不要です。
+
+ローカルで開く場合は `~/.aws` に保存しておきます。
+
+```bash
+aws configure   # 上の 2 つと region (ap-northeast-1) を入力。output は json でよい
+```
+
+</details>
+
+### 必要な権限
+
+この認証情報で動かすのは `terraform apply` / `terraform destroy` と
+`scripts/bootstrap-image.sh` (ECR への docker push) だけです。アプリのデプロイ自体は
+GitHub Actions が OIDC で別のロールを assume して行うため、ここでの認証情報は
+**インフラの作成と削除**にしか使いません。
+
+| サービス | 何をするか | 作られるもの |
+|---|---|---|
+| ECR | リポジトリ作成、イメージの push | ECR リポジトリ ×1 |
+| IAM | OIDC プロバイダ、ロール、インラインポリシーの作成 | GitHub OIDC プロバイダ ×1、デプロイ用ロール ×3、Lambda 実行ロール ×3 |
+| Lambda | 関数と Function URL の作成 | Lambda ×3 |
+| S3 | バケット、バケットポリシー、パブリックアクセスブロックの設定 | バケット ×3 |
+| CloudFront | ディストリビューションと OAC の作成 | ディストリビューション ×3 |
+| CloudWatch Logs | Lambda のロググループ (実行時に自動作成) | ロググループ ×3 |
+| STS | `aws sts get-caller-identity` での疎通確認 | — |
+
+個人の AWS アカウントで演習するなら、**`AdministratorAccess` をアタッチするのが
+手っ取り早く、確実**です (このチュートリアルは IAM ロールと OIDC プロバイダまで作るため、
+権限を絞りすぎると `terraform apply` の途中で AccessDenied になって余計に時間を溶かします)。
+
+組織のアカウントを使う場合や、どうしても権限を絞りたい場合は、上の表のサービスに対する
+作成・参照・削除の権限を管理者に依頼してください。AWS 管理ポリシーで組むなら以下が最小構成に近いです
+(`IAMFullAccess` が要る点がポイント — 削れません)。
+
+| ポリシー | 用途 |
+|---|---|
+| `IAMFullAccess` | OIDC プロバイダ / ロール / ポリシーの作成・削除、Lambda へのロール PassRole |
+| `AmazonEC2ContainerRegistryFullAccess` | ECR リポジトリの作成とイメージ push |
+| `AWSLambda_FullAccess` | Lambda 関数と Function URL |
+| `AmazonS3FullAccess` | フロントエンド配信用バケット |
+| `CloudFrontFullAccess` | ディストリビューションと OAC |
+
+> [!TIP]
+> 権限が足りているかは、実際に `terraform apply` を流してみるのが一番早いです。
+> 途中で `AccessDenied` / `not authorized to perform: <アクション>` が出たら、
+> そのアクションが不足しています。作成済みのリソースは
+> `terraform -chdir=terraform destroy` で消してからやり直せます。
+
+> [!CAUTION]
+> アクセスキーはパスワードと同じです。リポジトリにコミットしない (`.gitignore` 済みの
+> `terraform.tfvars` にも書かない)、Slack やメールに貼らない。B で作ったキーは演習が
+> 終わったら [終章](./99-cleanup.md) で削除します。
+
+`AWS_REGION` は `ap-northeast-1` を使います (`terraform/variables.tf` の既定値。
+変えたい場合は `terraform.tfvars` で `aws_region` を上書きしてください)。
+
 ### AWS 認証情報を渡す
+
+取得した認証情報を、開き方に応じてコンテナに渡します。
 
 | 開き方 | 渡し方 |
 |---|---|
-| ローカルの VS Code | ホストの `~/.aws` が読み取り専用でマウントされます。何もしなくて OK |
-| Codespaces | リポジトリの **Settings → Secrets and variables → Codespaces** に `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` を登録 (一時認証情報なら `AWS_SESSION_TOKEN` も) |
+| ローカルの VS Code | ホストの `~/.aws` が読み取り専用でマウントされます。上の `aws configure` / `aws configure sso` を**ホスト側で**済ませてあれば、何もしなくて OK |
+| Codespaces | リポジトリの **Settings → Secrets and variables → Codespaces** に `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` を登録 (A の一時認証情報なら `AWS_SESSION_TOKEN` も) |
 
-`aws sts get-caller-identity` が通れば準備完了です。
+> [!NOTE]
+> Codespaces secrets は起動時に環境変数として注入されます。**すでに起動している
+> Codespace には反映されない**ので、登録後に再起動してください。
+
+```bash
+aws sts get-caller-identity   # Account / Arn が返れば準備完了
+```
+
+`InvalidClientTokenId` や `ExpiredToken` が返る場合は、キーの貼り間違いか、
+A の一時認証情報の期限切れです (`aws sso login` で取り直してください)。
 
 > [!IMPORTANT]
 > Rulesets と Environment 保護ルールを無料プランで使うには、リポジトリを

@@ -24,6 +24,19 @@ aws logs describe-log-groups \
   | xargs -I{} aws logs delete-log-group --log-group-name {}
 ```
 
+## AWS 認証情報の始末
+
+第0章 B (IAM ユーザーのアクセスキー) で演習用のキーを発行した場合は、期限がない
+長期認証情報なので削除してください。IAM Identity Center の一時認証情報 (第0章 A) は
+放っておいても失効するため、操作は不要です。
+
+- コンソール: **IAM → ユーザー → 該当ユーザー → セキュリティ認証情報 → アクセスキー → 削除**
+  (演習専用に作ったユーザーなら、ユーザーごと削除してしまうのが確実です)
+- Codespaces secrets に登録した `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` も
+  **Settings → Secrets and variables → Codespaces** から削除
+
+`terraform destroy` の前にキーを消すと後片付けができなくなるので、順番に注意してください。
+
 ## GitHub 側
 
 リポジトリごと消すなら操作は不要です。教材として残す場合:
