@@ -34,11 +34,22 @@ aws ecr get-login-password --region "${REGION}" \
 echo "==> build & push ${REPO_URL}:bootstrap"
 # Lambda は x86_64 固定 (terraform/lambda.tf) なので、Apple Silicon などの
 # arm64 ホストでも amd64 イメージを作る。外すと Lambda が起動しない。
-docker build \
+#
+# Lambda が受け付けるのは Docker Image Manifest V2 Schema 2 だけ。
+# 素の `docker build` + `docker push` だと下記で CreateFunction が 400 になる:
+#   InvalidParameterValueException: The image manifest, config or layer media type
+#   for the source image ... is not supported.
+# 最近の buildx は既定で provenance/SBOM の attestation を添付し、その結果
+# OCI image index (application/vnd.oci.image.index.v1+json) を push するため。
+# containerd image store が有効だと push 側でも OCI のまま素通しになる。
+# attestation を切り、oci-mediatypes=false で Docker v2 manifest を明示する。
+docker buildx build \
   --platform linux/amd64 \
+  --provenance=false \
+  --sbom=false \
   --build-arg APP_VERSION=bootstrap \
   --build-arg GIT_SHA=bootstrap \
-  -t "${REPO_URL}:bootstrap" backend
-docker push "${REPO_URL}:bootstrap"
+  --output "type=image,name=${REPO_URL}:bootstrap,oci-mediatypes=false,push=true" \
+  backend
 
 echo "==> done. 続けて terraform apply を実行してください"
