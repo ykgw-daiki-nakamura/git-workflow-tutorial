@@ -6,6 +6,10 @@
 ## AWS リソースの削除
 
 ```bash
+# 自分のリソースの名前 (gitflow-tutorial-<owner>) を先に控える。
+# destroy すると terraform の出力も消えるため、後からでは取れない
+PREFIX=$(terraform -chdir=terraform output -raw name_prefix)
+
 terraform -chdir=terraform destroy
 ```
 
@@ -14,15 +18,22 @@ terraform -chdir=terraform destroy
 - CloudFront の削除には数分かかります
 
 完了後、コンソールで残骸がないか確認してください
-(CloudWatch Logs のロググループ `/aws/lambda/gitflow-tutorial-*` は
-Lambda 削除後も残るため、気になる場合は手動で削除します)。
+(CloudWatch Logs のロググループ `/aws/lambda/<PREFIX>-*` は Lambda 削除後も残るため、
+気になる場合は手動で削除します)。
 
 ```bash
 aws logs describe-log-groups \
-  --log-group-name-prefix /aws/lambda/gitflow-tutorial \
+  --log-group-name-prefix "/aws/lambda/${PREFIX}" \
   --query 'logGroups[].logGroupName' --output text | tr '\t' '\n' \
   | xargs -I{} aws logs delete-log-group --log-group-name {}
 ```
+
+> [!WARNING]
+> プレフィックスから `-<owner>` の部分を落として `/aws/lambda/gitflow-tutorial` で
+> 実行しないでください。1 つの AWS アカウントを複数人で共有している場合
+> ([第0章](./00-setup.md#1-つの-aws-アカウントを複数人で共有する))、**他の参加者の
+> ロググループまで一覧に入り、まとめて消えます**。最小権限ポリシーを使っていれば
+> 他人の分は削除が拒否されますが、`AdministratorAccess` で演習している場合は通ります。
 
 ## AWS 認証情報の始末
 
@@ -47,6 +58,40 @@ aws logs describe-log-groups \
 | B: IAM ユーザーのアクセスキー | 上記に加えて、**AWS 側のアクセスキー本体** (期限が無いため必須) |
 
 `terraform destroy` の前にキーを消すと後片付けができなくなるので、順番に注意してください。
+
+<details>
+<summary>▶ 1 つの AWS アカウントを複数人で共有した場合 (管理者の後片付け)</summary>
+
+参加者全員の `terraform destroy` が終わってから、管理者が実行します。
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+for OWNER in alice bob carol; do
+  POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/gitflow-tutorial-${OWNER}-setup"
+
+  # アクセスキーとポリシーを外してからでないとユーザーは削除できない
+  aws iam list-access-keys --user-name "${OWNER}" \
+    --query 'AccessKeyMetadata[].AccessKeyId' --output text | tr '\t' '\n' \
+    | xargs -r -I{} aws iam delete-access-key --user-name "${OWNER}" --access-key-id {}
+
+  aws iam detach-user-policy --user-name "${OWNER}" --policy-arn "${POLICY_ARN}"
+  aws iam delete-policy --policy-arn "${POLICY_ARN}"
+  aws iam delete-user --user-name "${OWNER}"
+done
+```
+
+GitHub OIDC プロバイダは**消さないのが既定**です。アカウント共有リソースなので、
+他のプロジェクトが使っている可能性があります。この演習のために作り、他に使い道が
+無いと確信できる場合だけ削除してください。
+
+```bash
+aws iam delete-open-id-connect-provider \
+  --open-id-connect-provider-arn \
+  "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+```
+
+</details>
 
 ## GitHub 側
 

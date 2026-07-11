@@ -10,6 +10,11 @@ output "aws_region" {
   value = var.aws_region
 }
 
+# 自分のリソースがどの名前で作られたか。終章の後片付け (ロググループの削除) で使う。
+output "name_prefix" {
+  value = local.name_prefix
+}
+
 # scripts/sync-github-vars.sh がこの JSON 構造を読んで
 # GitHub Environments の variables に流し込む
 output "environments" {

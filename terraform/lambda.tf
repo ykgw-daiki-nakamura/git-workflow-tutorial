@@ -2,7 +2,7 @@
 # 初回 apply の前に scripts/bootstrap-image.sh で :bootstrap タグを
 # push しておく必要がある (README のセットアップ手順を参照)。
 resource "aws_iam_role" "lambda_exec" {
-  name = "${var.project_name}-lambda-exec"
+  name = "${local.name_prefix}-lambda-exec"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -22,7 +22,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 resource "aws_lambda_function" "api" {
   for_each = local.environments
 
-  function_name = "${var.project_name}-${each.key}-api"
+  function_name = "${local.name_prefix}-${each.key}-api"
   role          = aws_iam_role.lambda_exec.arn
   package_type  = "Image"
   image_uri     = "${aws_ecr_repository.backend.repository_url}:bootstrap"

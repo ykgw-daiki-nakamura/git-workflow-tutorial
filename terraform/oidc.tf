@@ -108,7 +108,7 @@ data "aws_iam_policy_document" "deploy" {
 
 resource "aws_iam_role" "deploy" {
   for_each           = local.environments
-  name               = "${var.project_name}-${each.key}-deploy"
+  name               = "${local.name_prefix}-${each.key}-deploy"
   assume_role_policy = data.aws_iam_policy_document.assume[each.key].json
 }
 
