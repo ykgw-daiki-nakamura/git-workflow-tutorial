@@ -27,13 +27,24 @@ aws logs describe-log-groups \
 ## AWS 認証情報の始末
 
 第0章 B (IAM ユーザーのアクセスキー) で演習用のキーを発行した場合は、期限がない
-長期認証情報なので削除してください。IAM Identity Center の一時認証情報 (第0章 A) は
-放っておいても失効するため、操作は不要です。
+長期認証情報なので **AWS 側から削除**してください。
 
 - コンソール: **IAM → ユーザー → 該当ユーザー → セキュリティ認証情報 → アクセスキー → 削除**
   (演習専用に作ったユーザーなら、ユーザーごと削除してしまうのが確実です)
-- Codespaces secrets に登録した `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` も
-  **Settings → Secrets and variables → Codespaces** から削除
+
+**Codespaces secrets の削除は A・B どちらでも必要です。** A (IAM Identity Center の
+一時認証情報) は放っておいても失効しますが、失効するのは AWS 側の認証情報であって、
+**secrets に登録した値そのものは残り続けます**。次に Codespace を起動したときに
+失効済みの値が環境変数として注入され、`ExpiredToken` の原因になります。
+
+**Settings → Secrets and variables → Codespaces** から、登録したものをすべて削除して
+ください。A の場合は `AWS_SESSION_TOKEN` も、リージョンを明示した場合は `AWS_REGION` も
+対象です。
+
+| | 削除するもの |
+|---|---|
+| A: IAM Identity Center | Codespaces secrets (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` / `AWS_REGION`) |
+| B: IAM ユーザーのアクセスキー | 上記に加えて、**AWS 側のアクセスキー本体** (期限が無いため必須) |
 
 `terraform destroy` の前にキーを消すと後片付けができなくなるので、順番に注意してください。
 
