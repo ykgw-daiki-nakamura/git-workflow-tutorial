@@ -96,17 +96,46 @@ GitHub Actions が OIDC で別のロールを assume して行うため、ここ
 手っ取り早く、確実**です (このチュートリアルは IAM ロールと OIDC プロバイダまで作るため、
 権限を絞りすぎると `terraform apply` の途中で AccessDenied になって余計に時間を溶かします)。
 
-組織のアカウントを使う場合や、どうしても権限を絞りたい場合は、上の表のサービスに対する
-作成・参照・削除の権限を管理者に依頼してください。AWS 管理ポリシーで組むなら以下が最小構成に近いです
-(`IAMFullAccess` が要る点がポイント — 削れません)。
+組織のアカウントを使う場合や、権限を絞りたい場合のために、このチュートリアルに必要な分だけを
+許可するカスタムポリシーを [`docs/assets/setup-policy.json`](./assets/setup-policy.json)
+に用意しています。リソース名を `gitflow-tutorial-*` に限定してあるので、同じアカウントの
+他のリソースには手を出せません。
 
-| ポリシー | 用途 |
-|---|---|
-| `IAMFullAccess` | OIDC プロバイダ / ロール / ポリシーの作成・削除、Lambda へのロール PassRole |
-| `AmazonEC2ContainerRegistryFullAccess` | ECR リポジトリの作成とイメージ push |
-| `AWSLambda_FullAccess` | Lambda 関数と Function URL |
-| `AmazonS3FullAccess` | フロントエンド配信用バケット |
-| `CloudFrontFullAccess` | ディストリビューションと OAC |
+```bash
+# 管理者権限のある認証情報で 1 回だけ実行する (作成するのはポリシーだけ)
+aws iam create-policy \
+  --policy-name gitflow-tutorial-setup \
+  --policy-document file://docs/assets/setup-policy.json
+
+# B で作った IAM ユーザーにアタッチする
+aws iam attach-user-policy \
+  --user-name gitflow-tutorial \
+  --policy-arn arn:aws:iam::<アカウントID>:policy/gitflow-tutorial-setup
+```
+
+コンソールから作る場合は **IAM → ポリシー → ポリシーを作成 → JSON** に上記ファイルの中身を
+貼り付けてください。組織のアカウントで自分に IAM 権限がない場合は、この JSON をそのまま
+管理者に渡して権限セットに含めてもらうのが早いです。
+
+<details>
+<summary>▶ このポリシーが何を許可しているか</summary>
+
+| Sid | 許可 | なぜ必要か |
+|---|---|---|
+| `EcrAuthToken` / `EcrRepository` | ECR リポジトリ `gitflow-tutorial-backend` への全操作と `ecr:GetAuthorizationToken` | リポジトリ作成と `bootstrap-image.sh` の docker push。認証トークン取得だけはリソース指定不可なので `*` |
+| `S3FrontendBuckets` | `gitflow-tutorial-*-frontend-*` バケットへの全操作 | バケット作成、ポリシー設定、`force_destroy` での中身ごと削除 |
+| `LambdaFunctions` | `gitflow-tutorial-*` 関数への全操作 | 関数と Function URL の作成・削除 |
+| `CloudFront` | `cloudfront:*` | CloudFront は作成系アクションがリソース指定に対応していないため `*` |
+| `IamRoles` | `gitflow-tutorial-*` **ロールのみ**の作成・削除・インラインポリシー設定 | デプロイ用ロール ×3 と Lambda 実行ロール |
+| `IamAttachLambdaBasicExecutionOnly` | 管理ポリシーのアタッチを `AWSLambdaBasicExecutionRole` **だけ**に限定 | 任意の管理ポリシー (例: `AdministratorAccess`) をアタッチできると権限昇格になるため条件で塞いでいる |
+| `IamPassRoleToLambdaOnly` | `gitflow-tutorial-lambda-exec` を **Lambda にだけ** 渡せる | Lambda 作成時の `PassRole`。渡し先サービスを条件で限定 |
+| `IamGithubOidcProvider` | `token.actions.githubusercontent.com` の OIDC プロバイダ操作 | GitHub Actions の OIDC 連携 |
+| `CleanupLogGroups` | `/aws/lambda/gitflow-tutorial-*` のロググループ削除 | [終章](./99-cleanup.md)の後片付け |
+
+`terraform.tfvars` で `project_name` を既定の `gitflow-tutorial` から変更した場合は、
+JSON 内の ARN のプレフィックスも合わせて書き換えてください。
+
+</details>
 
 > [!TIP]
 > 権限が足りているかは、実際に `terraform apply` を流してみるのが一番早いです。
