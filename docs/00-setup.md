@@ -295,6 +295,18 @@ aws: [ERROR]: Invalid endpoint: https://sts..amazonaws.com
 まま素通しにはなりません)。結果、コンテナ内では「セットされているが中身が空」という
 状態になります。`AWS_PROFILE` を使わず環境変数だけで認証する Codespaces で起きがちです。
 
+これは `.devcontainer/shell-env.sh` が自動で取り除くので、**通常は起きません**。
+それでも出る場合は、コンテナ作成時の `post-create.sh` が最後まで走らなかった可能性が
+高いです。コマンドパレットから **Rebuild Container** を実行してください。
+
+急ぐ場合は、開いているシェルで直接消しても通ります。
+
+```bash
+unset AWS_PROFILE AWS_SESSION_TOKEN     # B の恒久キーなら SESSION_TOKEN は不要
+export AWS_REGION=ap-northeast-1        # terraform/variables.tf の既定値
+aws sts get-caller-identity
+```
+
 どの変数が空かは、値を表示せずに長さだけで確認できます。
 
 ```bash
@@ -307,16 +319,7 @@ done
 ```
 
 `AWS_ACCESS_KEY_ID` が 20 文字、`AWS_SECRET_ACCESS_KEY` が 40 文字あれば認証情報そのものは
-正しく渡っています。空の変数を消し、リージョンを明示すれば通ります。
-
-```bash
-unset AWS_PROFILE AWS_SESSION_TOKEN     # B の恒久キーなら SESSION_TOKEN は不要
-export AWS_REGION=ap-northeast-1        # terraform/variables.tf の既定値
-aws sts get-caller-identity
-```
-
-恒久的に直すなら、Codespaces secrets に `AWS_REGION` を登録し (未登録だと空文字列に
-なります)、`AWS_PROFILE` はホスト側でも設定しないでおくのが確実です。
+正しく渡っています。
 
 </details>
 
