@@ -16,8 +16,16 @@ require_docker_daemon
 require_terraform_output ecr_repository_url
 
 REPO_URL=$(terraform -chdir=terraform output -raw ecr_repository_url)
-REGION=$(terraform -chdir=terraform output -raw aws_region)
 REGISTRY=${REPO_URL%%/*}
+# リージョンは aws_region 出力からは取らない。このスクリプトを実行する時点では
+# terraform apply -target=aws_ecr_repository.backend しか終わっておらず、
+# -target したリソースに依存しない出力 (aws_region) は state に書かれないため。
+# レジストリ名 <account>.dkr.ecr.<region>.amazonaws.com から取り出す。
+REGION=$(echo "${REGISTRY}" | awk -F. '{print $4}')
+if [[ -z ${REGION} ]]; then
+  echo "ERROR: ECR URL からリージョンを判定できません: ${REPO_URL}" >&2
+  exit 1
+fi
 
 echo "==> login to ${REGISTRY}"
 aws ecr get-login-password --region "${REGION}" \
