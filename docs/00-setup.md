@@ -130,7 +130,7 @@ aws iam attach-user-policy \
 | `IamAttachLambdaBasicExecutionOnly` | 管理ポリシーのアタッチを `AWSLambdaBasicExecutionRole` **だけ**に限定 | 任意の管理ポリシー (例: `AdministratorAccess`) をアタッチできると権限昇格になるため条件で塞いでいる |
 | `IamPassRoleToLambdaOnly` | `gitflow-tutorial-lambda-exec` を **Lambda にだけ** 渡せる | Lambda 作成時の `PassRole`。渡し先サービスを条件で限定 |
 | `IamGithubOidcProvider` | `token.actions.githubusercontent.com` の OIDC プロバイダ操作 | GitHub Actions の OIDC 連携 |
-| `CleanupLogGroups` | `/aws/lambda/gitflow-tutorial-*` のロググループ削除 | [終章](./99-cleanup.md)の後片付け |
+| `CleanupLogGroupsList` / `CleanupLogGroups` | ロググループの一覧取得と、`/aws/lambda/gitflow-tutorial-*` の削除 | [終章](./99-cleanup.md)の後片付け。一覧取得は特定のロググループに対する操作ではなく、IAM が「名前が空の ARN」で認可判定するため、リソース指定できず `*` になる (削除の方はプレフィックスで絞れる) |
 
 `terraform.tfvars` で `project_name` を既定の `gitflow-tutorial` から変更した場合は、
 JSON 内の ARN のプレフィックスも合わせて書き換えてください。

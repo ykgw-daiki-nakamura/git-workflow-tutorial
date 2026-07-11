@@ -102,12 +102,15 @@
       "Resource": "arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"
     },
     {
+      "Sid": "CleanupLogGroupsList",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    },
+    {
       "Sid": "CleanupLogGroups",
       "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "logs:DeleteLogGroup"
-      ],
+      "Action": "logs:DeleteLogGroup",
       "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/gitflow-tutorial-*"
     }
   ]
