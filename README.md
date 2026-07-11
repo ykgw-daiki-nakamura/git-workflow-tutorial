@@ -19,7 +19,7 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 ├── frontend/     # Vite + React。/version.json (ビルド時生成) と /api/version を並べて検品するダッシュボード
 ├── backend/      # FastAPI + Lambda Web Adapter。APP_VERSION / GIT_SHA はビルド時に焼き込み
 ├── terraform/    # ECR / OIDC ロール×3 / Lambda×3 / S3×3 / CloudFront×3
-├── scripts/      # bootstrap-image.sh / setup-github.sh / sync-github-vars.sh
+├── scripts/      # check-aws-permissions.sh / bootstrap-image.sh / setup-github.sh / sync-github-vars.sh
 ├── .devcontainer/ # Node 22 / Python 3.12 / uv / Terraform / AWS CLI / gh / docker-in-docker
 └── .github/
     └── workflows/
@@ -60,28 +60,29 @@ Terraform / Docker / gh CLI / jq / Node 22 / uv は
 # 0. このテンプレートから自分のリポジトリを作成して clone
 
 # 1. Terraform 変数を設定
-cd terraform
-cat > terraform.tfvars <<EOF
+cat > terraform/terraform.tfvars <<EOF
 github_repository = "<GitHubアカウント>/<リポジトリ名>"
 owner             = "<自分の識別子>"   # リソース名とタグに入る。1 アカウントを複数人で共有する場合はここで分ける
 # project_name / aws_region は必要に応じて上書き
 EOF
 
-# 2. ECR だけ先に作成 → bootstrap イメージ push → 全体を apply
-terraform init
-terraform apply -target=aws_ecr_repository.backend
-cd ..
+# 2. AWS の権限が揃っているか確認 (読み取りだけ。何も作らない)
+./scripts/check-aws-permissions.sh
+
+# 3. ECR だけ先に作成 → bootstrap イメージ push → 全体を apply
+terraform -chdir=terraform init
+terraform -chdir=terraform apply -target=aws_ecr_repository.backend
 ./scripts/bootstrap-image.sh
 terraform -chdir=terraform apply   # CloudFront 作成に数分かかります
 
-# 3. GitHub 側の設定 (どちらかを選択)
+# 4. GitHub 側の設定 (どちらかを選択)
 ./scripts/setup-github.sh solo                 # 一人で演習する場合
 ./scripts/setup-github.sh pair <reviewer名>    # ペア/研修で規約どおりにする場合
 
-# 4. Terraform 出力を GitHub variables に同期
+# 5. Terraform 出力を GitHub variables に同期
 ./scripts/sync-github-vars.sh
 
-# 5. 動作確認: main に空コミットを push できないこと (Ruleset)、
+# 6. 動作確認: main に空コミットを push できないこと (Ruleset)、
 #    PR を作って merge すると dev に自動デプロイされることを確認
 ```
 

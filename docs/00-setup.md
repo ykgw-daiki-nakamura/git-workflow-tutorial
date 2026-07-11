@@ -106,28 +106,31 @@ GitHub Actions が OIDC で別のロールを assume して行うため、ここ
 複数人で共有して演習できるのは、この仕組みのおかげです ([後述](#1-つの-aws-アカウントを複数人で共有する))。
 
 ポリシーは [`scripts/gen-setup-policy.sh`](../scripts/gen-setup-policy.sh) で
-[テンプレート](./assets/setup-policy.template.json)から生成します。
+[テンプレート](./assets/setup-policy.template.json)から生成します。生成から IAM への
+登録・アタッチまでを [`scripts/apply-setup-policy.sh`](../scripts/apply-setup-policy.sh) が
+まとめて行います (管理者権限のある認証情報で実行してください)。
 
 ```bash
 # 演習に使う識別子。terraform.tfvars の owner と同じ値にすること
-OWNER=alice
-
-./scripts/gen-setup-policy.sh "${OWNER}" > /tmp/setup-policy.json
-
-# 管理者権限のある認証情報で 1 回だけ実行する (作成するのはポリシーだけ)
-aws iam create-policy \
-  --policy-name "gitflow-tutorial-${OWNER}-setup" \
-  --policy-document file:///tmp/setup-policy.json
-
-# B で作った IAM ユーザーにアタッチする
-aws iam attach-user-policy \
-  --user-name "${OWNER}" \
-  --policy-arn "arn:aws:iam::<アカウントID>:policy/gitflow-tutorial-${OWNER}-setup"
+./scripts/apply-setup-policy.sh alice
 ```
 
-コンソールから作る場合は **IAM → ポリシー → ポリシーを作成 → JSON** にスクリプトの出力を
-貼り付けてください。組織のアカウントで自分に IAM 権限がない場合は、この JSON をそのまま
-管理者に渡して権限セットに含めてもらうのが早いです。
+**このスクリプトは何度実行しても同じ結果になります** (冪等)。ポリシーが無ければ作り、
+あれば新しいバージョンに切り替えるだけです。**リポジトリを更新したら、参加者ごとに
+これを実行し直してください。**リソース名の付け方が変わると、古いポリシーの許可は
+名前が変わったリソースに届かなくなり、`terraform apply` が `AccessDenied` になります
+(実際に起きました: [#28](https://github.com/ykgw-daiki-nakamura/git-workflow-tutorial/issues/28))。
+
+IAM ユーザー名が `owner` と違う場合は `--user` で渡します。
+
+```bash
+./scripts/apply-setup-policy.sh alice --user git-workflow-tutorial-alice
+```
+
+コンソールから作る場合は、`./scripts/gen-setup-policy.sh alice` の出力を
+**IAM → ポリシー → ポリシーを作成 → JSON** に貼り付けてください。組織のアカウントで
+自分に IAM 権限がない場合は、この JSON をそのまま管理者に渡して権限セットに含めて
+もらうのが早いです。
 
 <details>
 <summary>▶ このポリシーが何を許可しているか</summary>
@@ -188,10 +191,18 @@ aws iam attach-user-policy \
 </details>
 
 > [!TIP]
-> 権限が足りているかは、実際に `terraform apply` を流してみるのが一番早いです。
-> 途中で `AccessDenied` / `not authorized to perform: <アクション>` が出たら、
-> そのアクションが不足しています。作成済みのリソースは
-> `terraform -chdir=terraform destroy` で消してからやり直せます。
+> 権限が足りているかは、`terraform apply` の前に確かめられます。何も作らずに
+> 読み取りだけで確認するので、いつ実行しても安全です。
+>
+> ```bash
+> ./scripts/check-aws-permissions.sh        # owner は terraform.tfvars から読む
+> ```
+>
+> 足りない権限があれば、アクション名と直し方を表示します。apply の途中で生の
+> `AccessDenied` を踏むより、ここで気付くほうが早いです。
+> (S3 と CloudFront の作成は読み取りだけでは確かめられないため、この検査は万能では
+> ありません。apply が `not authorized to perform: <アクション>` で落ちたら、
+> そのアクションが不足しています。)
 
 > [!CAUTION]
 > アクセスキーはパスワードと同じです。リポジトリにコミットしない (`.gitignore` 済みの
@@ -222,20 +233,39 @@ aws iam create-open-id-connect-provider \
 
 # 2. 参加者ごとに IAM ユーザーとポリシーを作る
 for OWNER in alice bob carol; do
-  ./scripts/gen-setup-policy.sh "${OWNER}" > "/tmp/setup-policy-${OWNER}.json"
-
   aws iam create-user --user-name "${OWNER}"
-  aws iam create-policy \
-    --policy-name "gitflow-tutorial-${OWNER}-setup" \
-    --policy-document "file:///tmp/setup-policy-${OWNER}.json"
-  aws iam attach-user-policy \
-    --user-name "${OWNER}" \
-    --policy-arn "arn:aws:iam::<アカウントID>:policy/gitflow-tutorial-${OWNER}-setup"
+
+  # ポリシーの生成・登録・アタッチ。冪等なので、あとから何度実行してもよい
+  ./scripts/apply-setup-policy.sh "${OWNER}"
 
   # アクセスキーを発行して本人にだけ安全な経路で渡す (画面にしか出ない)
   aws iam create-access-key --user-name "${OWNER}"
 done
 ```
+
+> [!IMPORTANT]
+> **このリポジトリを更新したら、参加者ごとに `apply-setup-policy.sh` を実行し直して
+> ください。**ポリシーはリソース名 (`gitflow-tutorial-<owner>-...`) で許可範囲を絞って
+> いるため、命名を変える更新が入ると、古いポリシーの許可は新しい名前のリソースに
+> 届かなくなります。
+>
+> 実際にこれが起きたことがあります ([#28](https://github.com/ykgw-daiki-nakamura/git-workflow-tutorial/issues/28))。
+> リソース名に `owner` が入るようになった際、それ以前のポリシーは ECR リポジトリを
+> `gitflow-tutorial-backend` という**完全一致**で許可していたため、
+> `gitflow-tutorial-alice-backend` に改名された瞬間に許可の外に出て、
+> 参加者全員の `terraform apply` が `ecr:CreateRepository` の `AccessDenied` で
+> 止まりました。S3 や Lambda は `gitflow-tutorial-*` というワイルドカードだったので
+> たまたま動き続け、ECR だけが壊れたぶん原因が分かりにくい形になりました。
+>
+> 貼り直しは 1 行です。古い名前のポリシー (`gitflow-tutorial-setup`) が付いていれば、
+> スクリプトが検出してデタッチします。
+>
+> ```bash
+> for OWNER in alice bob carol; do ./scripts/apply-setup-policy.sh "${OWNER}"; done
+> ```
+>
+> 参加者側は `./scripts/check-aws-permissions.sh` で、`terraform apply` を流す前に
+> 権限が揃っているかを確認できます。
 
 #### 参加者がやること
 
@@ -365,20 +395,24 @@ Lambda はコンテナイメージがないと作成できないため、「ECR 
 push → 全体を apply」の 3 段階で進めます。
 
 ```bash
-cd terraform
-cat > terraform.tfvars <<EOF
+cat > terraform/terraform.tfvars <<EOF
 github_repository = "<GitHubアカウント>/<リポジトリ名>"
 owner             = "<自分の識別子>"
 EOF
 
-terraform init
-terraform apply -target=aws_ecr_repository.backend   # ECR だけ先に作成
-cd ..
+./scripts/check-aws-permissions.sh    # 権限が揃っているか (読み取りだけ。何も作らない)
 
-./scripts/bootstrap-image.sh                          # :bootstrap イメージを push
+terraform -chdir=terraform init
+terraform -chdir=terraform apply -target=aws_ecr_repository.backend   # ECR だけ先に作成
 
-terraform -chdir=terraform apply                      # 全体を作成 (数分かかる)
+./scripts/bootstrap-image.sh          # :bootstrap イメージを push
+
+terraform -chdir=terraform apply      # 全体を作成 (数分かかる)
 ```
+
+最初の `check-aws-permissions.sh` は、いまの認証情報で必要な権限が揃っているかを
+読み取りだけで確かめます。ここで `権限なし` が出たら、先に進んでも `terraform apply` の
+途中で `AccessDenied` になるだけなので、表示された手順に従ってポリシーを直してください。
 
 `owner` は作られるリソースの名前とタグに入る、あなた専用の目印です (英小文字・数字・
 ハイフン、13 文字以内)。自分のアカウントで一人で演習するなら好きな値で構いません。
