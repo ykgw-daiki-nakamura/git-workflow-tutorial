@@ -35,11 +35,17 @@
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly"
   ],
 
+  // 注意: ${localEnv:X} はホストで X が未設定のとき「空文字列」に展開される
+  // (仕様: Unset variables are left blank)。行が消えるのではなく X="" が注入されるため、
+  // AWS CLI は「空のプロファイル名/リージョン名」を使おうとして失敗する。
+  //   The config profile () could not be found / https://sts..amazonaws.com
+  // AWS_REGION は既定値構文で回避し、値を持てない AWS_PROFILE などは
+  // post-create.sh が仕込む ~/.bashrc のスニペットで空なら unset する。
   "remoteEnv": {
     "AWS_ACCESS_KEY_ID": "${localEnv:AWS_ACCESS_KEY_ID}",
     "AWS_SECRET_ACCESS_KEY": "${localEnv:AWS_SECRET_ACCESS_KEY}",
     "AWS_SESSION_TOKEN": "${localEnv:AWS_SESSION_TOKEN}",
-    "AWS_REGION": "${localEnv:AWS_REGION}",
+    "AWS_REGION": "${localEnv:AWS_REGION:ap-northeast-1}",
     "AWS_PROFILE": "${localEnv:AWS_PROFILE}"
   },
 
