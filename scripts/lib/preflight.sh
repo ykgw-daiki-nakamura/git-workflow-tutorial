@@ -4,23 +4,17 @@
 # 前提が満たされないまま進むと、依存ツールの生のエラーが処理の途中で出る。
 # 何を直せばよいかが分かるメッセージを、副作用が起きる前に出すのが目的。
 
-# devcontainer の remoteEnv は、ホストで未設定の ${localEnv:X} を「空文字列」として
-# 注入する (行が消えるわけではない)。空の AWS_PROFILE が残っていると aws / terraform は
-# 空の名前をそのまま使い "The config profile () could not be found" で失敗する。
+# devcontainer の remoteEnv が注入する「空の」AWS_* を取り除く。
+# 実体は .devcontainer/shell-env.sh (理由と対象変数はそちらのコメントを参照)。
 #
-# 同じ除去を post-create.sh が ~/.bashrc にも仕込むが、あちらは対話シェル専用。
-# Ubuntu の ~/.bashrc は冒頭で「非対話シェルなら return」するため、スクリプト実行時には
-# 効かない。スクリプトは自分で面倒を見る必要がある。source した時点で実行する。
-strip_empty_aws_env() {
-  local v
-  for v in AWS_PROFILE AWS_REGION AWS_SESSION_TOKEN AWS_SDK_LOAD_CONFIG \
-           AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
-    if [[ -n ${!v+x} && -z ${!v} ]]; then
-      unset "${v}"
-    fi
-  done
-}
-strip_empty_aws_env
+# devcontainer 側は BASH_ENV / ~/.bashrc / /etc/profile.d / ~/.zshenv からこれを読ませて
+# いるが、スクリプトは devcontainer の外 (CI や素の shell) でも走りうる。そこでは
+# BASH_ENV が設定されていないので、ここでも自分で読む。冪等なので二重に読んでも問題ない。
+__PREFLIGHT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../../.devcontainer/shell-env.sh
+source "${__PREFLIGHT_DIR}/../../.devcontainer/shell-env.sh"
+unset __PREFLIGHT_DIR
 
 # 必要なコマンドが PATH にあるか。足りないものをまとめて報告する。
 require_cmd() {

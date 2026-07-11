@@ -39,14 +39,23 @@
   // (仕様: Unset variables are left blank)。行が消えるのではなく X="" が注入されるため、
   // AWS CLI は「空のプロファイル名/リージョン名」を使おうとして失敗する。
   //   The config profile () could not be found / https://sts..amazonaws.com
-  // AWS_REGION は既定値構文で回避し、値を持てない AWS_PROFILE などは
-  // post-create.sh が仕込む ~/.bashrc のスニペットで空なら unset する。
+  // 「空なら注入しない」とは書けないので、コンテナ側の shell-env.sh で受け止めて unset する。
+  // AWS_REGION だけは既定値構文でも埋められるが、他と揃えて shell-env.sh 側でも面倒を見る。
   "remoteEnv": {
     "AWS_ACCESS_KEY_ID": "${localEnv:AWS_ACCESS_KEY_ID}",
     "AWS_SECRET_ACCESS_KEY": "${localEnv:AWS_SECRET_ACCESS_KEY}",
     "AWS_SESSION_TOKEN": "${localEnv:AWS_SESSION_TOKEN}",
     "AWS_REGION": "${localEnv:AWS_REGION:ap-northeast-1}",
     "AWS_PROFILE": "${localEnv:AWS_PROFILE}"
+  },
+
+  // 非対話 bash (bash -c / VS Code のタスク / 自作スクリプト) は ~/.bashrc を読まない
+  // (Ubuntu の ~/.bashrc は冒頭で「非対話なら return」する)。BASH_ENV は非対話 bash が
+  // 起動時に読むファイルなので、ここから上記の空 AWS_* の除去を効かせる。
+  // 対話 bash / ログインシェル / zsh 向けの仕込みは post-create.sh 側。
+  // 指すファイルが無くても bash は黙って無視するため、ビルド前でも安全。
+  "containerEnv": {
+    "BASH_ENV": "${containerWorkspaceFolder}/.devcontainer/shell-env.sh"
   },
 
   "customizations": {
