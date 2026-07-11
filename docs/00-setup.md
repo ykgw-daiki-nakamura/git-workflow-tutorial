@@ -171,6 +171,50 @@ aws sts get-caller-identity   # Account / Arn が返れば準備完了
 `InvalidClientTokenId` や `ExpiredToken` が返る場合は、キーの貼り間違いか、
 A の一時認証情報の期限切れです (`aws sso login` で取り直してください)。
 
+<details>
+<summary>▶ <code>config profile ()</code> や <code>sts..amazonaws.com</code> というエラーが出る場合</summary>
+
+キーは正しいのに、次のようなエラーが出ることがあります。
+
+```
+aws: [ERROR]: The config profile () could not be found
+aws: [ERROR]: Invalid endpoint: https://sts..amazonaws.com
+```
+
+どちらも**空の環境変数**が原因です。括弧の中とホスト名の途中が空欄になっているのが
+その印で、AWS CLI は「空のプロファイル名」「空のリージョン名」をそのまま使おうとして
+失敗しています。
+
+`.devcontainer/devcontainer.json` の `remoteEnv` はホストの値をコンテナへ引き渡しますが、
+**ホスト側でその変数が未設定だと `${localEnv:...}` は空文字列に展開されます** (未設定の
+まま素通しにはなりません)。結果、コンテナ内では「セットされているが中身が空」という
+状態になります。`AWS_PROFILE` を使わず環境変数だけで認証する Codespaces で起きがちです。
+
+どの変数が空かは、値を表示せずに長さだけで確認できます。
+
+```bash
+for v in AWS_PROFILE AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
+  val="${!v}"
+  if   [ -z "${!v+x}" ]; then echo "$v: 未設定 (OK)"
+  elif [ -z "$val"    ]; then echo "$v: 空 <-- これが原因"
+  else echo "$v: 設定あり (${#val} 文字)"; fi
+done
+```
+
+`AWS_ACCESS_KEY_ID` が 20 文字、`AWS_SECRET_ACCESS_KEY` が 40 文字あれば認証情報そのものは
+正しく渡っています。空の変数を消し、リージョンを明示すれば通ります。
+
+```bash
+unset AWS_PROFILE AWS_SESSION_TOKEN     # B の恒久キーなら SESSION_TOKEN は不要
+export AWS_REGION=ap-northeast-1        # terraform/variables.tf の既定値
+aws sts get-caller-identity
+```
+
+恒久的に直すなら、Codespaces secrets に `AWS_REGION` を登録し (未登録だと空文字列に
+なります)、`AWS_PROFILE` はホスト側でも設定しないでおくのが確実です。
+
+</details>
+
 > [!IMPORTANT]
 > Rulesets と Environment 保護ルールを無料プランで使うには、リポジトリを
 > **パブリック**にする必要があります。プライベートで演習したい場合は
