@@ -11,22 +11,36 @@
 NAMING_VARIABLES_TF="terraform/variables.tf"
 NAMING_TFVARS="terraform/terraform.tfvars"
 
-# project_name の既定値は terraform/variables.tf を唯一の定義元とする。
-# ここに独自の既定値を書くと、terraform 側を変えたときに黙ってズレる。
+# terraform.tfvars から変数を 1 つ拾う。terraform が実際に使う値をここでも使うため。
+naming_from_tfvars() {
+  local key="$1"
+  [[ -f ${NAMING_TFVARS} ]] || return 0
+  awk -F'=' -v key="${key}" '$1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+    gsub(/[[:space:]"]/, "", $2); print $2; exit
+  }' "${NAMING_TFVARS}"
+}
+
+naming_owner_from_tfvars() {
+  naming_from_tfvars owner
+}
+
+# project_name は terraform.tfvars > variables.tf の既定値、の順で決める。terraform 自身と
+# 同じ優先順位にすること。tfvars の上書きを見落とすと、terraform が作るリソース名と
+# こちらが組み立てる名前がズレて、正しいポリシーでも AccessDenied に見える (Issue #30)。
 naming_default_project_name() {
+  local from_tfvars
+  from_tfvars=$(naming_from_tfvars project_name)
+  if [[ -n ${from_tfvars} ]]; then
+    printf '%s\n' "${from_tfvars}"
+    return 0
+  fi
+  # 既定値の定義元は terraform/variables.tf ただ 1 つ。ここに独自の既定値を書くと、
+  # terraform 側を変えたときに黙ってズレる。
   awk '
     /^variable "project_name"/ { in_block = 1; next }
     in_block && $1 == "default" { gsub(/"/, "", $3); print $3; exit }
     in_block && /^}/            { exit }
   ' "${NAMING_VARIABLES_TF}"
-}
-
-# 参加者が自分で owner を書く terraform.tfvars から拾う。引数を省略したときの既定値。
-naming_owner_from_tfvars() {
-  [[ -f ${NAMING_TFVARS} ]] || return 0
-  awk -F'=' '$1 ~ /^[[:space:]]*owner[[:space:]]*$/ {
-    gsub(/[[:space:]"]/, "", $2); print $2; exit
-  }' "${NAMING_TFVARS}"
 }
 
 # owner / project_name を検証し、OWNER / PROJECT_NAME / PREFIX を設定する。
