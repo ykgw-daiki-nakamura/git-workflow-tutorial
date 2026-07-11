@@ -129,11 +129,23 @@ aws iam attach-user-policy \
 | `IamRoles` | `gitflow-tutorial-*` **ロールのみ**の作成・削除・インラインポリシー設定 | デプロイ用ロール ×3 と Lambda 実行ロール |
 | `IamAttachLambdaBasicExecutionOnly` | 管理ポリシーのアタッチを `AWSLambdaBasicExecutionRole` **だけ**に限定 | 任意の管理ポリシー (例: `AdministratorAccess`) をアタッチできると権限昇格になるため条件で塞いでいる |
 | `IamPassRoleToLambdaOnly` | `gitflow-tutorial-lambda-exec` を **Lambda にだけ** 渡せる | Lambda 作成時の `PassRole`。渡し先サービスを条件で限定 |
-| `IamGithubOidcProvider` | `token.actions.githubusercontent.com` の OIDC プロバイダ操作 | GitHub Actions の OIDC 連携 |
+| `IamGithubOidcProviderRead` | OIDC プロバイダの **参照のみ** (`Get`) | GitHub Actions の OIDC 連携。既定 (`create_oidc_provider = false`) では既存プロバイダを参照するだけなので、作成・削除の権限は要らない ([後述](#oidc-プロバイダを自分で作る場合)) |
 | `CleanupLogGroupsList` / `CleanupLogGroups` | ロググループの一覧取得と、`/aws/lambda/gitflow-tutorial-*` の削除 | [終章](./99-cleanup.md)の後片付け。一覧取得は特定のロググループに対する操作ではなく、IAM が「名前が空の ARN」で認可判定するため、リソース指定できず `*` になる (削除の方はプレフィックスで絞れる) |
 
 `terraform.tfvars` で `project_name` を既定の `gitflow-tutorial` から変更した場合は、
 JSON 内の ARN のプレフィックスも合わせて書き換えてください。
+
+#### OIDC プロバイダを自分で作る場合
+
+上のポリシーは OIDC プロバイダに対して **参照 (`Get`) しか許可していません**。
+プロバイダは URL ごとに AWS アカウントで 1 つしか作れないアカウント共有リソースで、
+削除権限を持っていると、誤操作や `terraform destroy` で**他プロジェクトの OIDC 連携を
+壊せてしまう**ためです ([0.3](#03-aws-リソースの作成) 参照)。既定ではそもそも作成しないので、
+これで足ります。
+
+自分専用のまっさらなアカウントで `create_oidc_provider = true` にする場合だけ、
+[`setup-policy-oidc-create.json`](./assets/setup-policy-oidc-create.json) を**追加で**
+アタッチしてください。
 
 </details>
 
