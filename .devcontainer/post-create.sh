@@ -25,7 +25,9 @@ echo "==> frontend: npm ci"
 # "The config profile () could not be found" / "https://sts..amazonaws.com" で失敗する。
 # 詳細と手動での回避手順は docs/00-setup.md の 0.1 を参照。
 marker="# >>> devcontainer: strip empty AWS_* >>>"
-if ! grep -qF "$marker" ~/.bashrc; then
+# ~/.bashrc が無いベースイメージでも grep がエラーを吐かないよう stderr を捨てる
+# (cat >> 側がファイルを作るので、追記自体は問題なく動く)
+if ! grep -qF "$marker" ~/.bashrc 2> /dev/null; then
   echo "==> shell: 空の AWS_* 環境変数を取り除く設定を ~/.bashrc に追加"
   # 'EOF' をクォートして、以下は展開せずそのまま ~/.bashrc へ書き出す
   cat >> ~/.bashrc <<'EOF'
