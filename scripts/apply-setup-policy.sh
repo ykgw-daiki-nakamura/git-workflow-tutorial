@@ -82,7 +82,12 @@ fi
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
 
-echo "==> 対象: owner=${OWNER} / IAM ユーザー=${IAM_USER} / ポリシー=${POLICY_NAME}"
+echo "==> owner       : ${OWNER}"
+echo "==> IAM ユーザー: ${IAM_USER}"
+echo "==> ポリシー    : ${POLICY_NAME}"
+# 手で登録する運用でも「どの名前向けに作ったか」が分かるように出す。ここが参加者の
+# terraform.tfvars の owner とズレると、プレフィックス付きの許可が全滅する (Issue #30)。
+echo "==> 許可する名前: ${PREFIX}-*"
 
 # 「ユーザーが無い」と「こちらに IAM の権限が無い」は直し方が全く違うので、混ぜない。
 # 参加者の認証情報で実行してしまうのはありがちな間違いで、AccessDenied を

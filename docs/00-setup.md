@@ -132,6 +132,17 @@ IAM ユーザー名が `owner` と違う場合は `--user` で渡します。
 自分に IAM 権限がない場合は、この JSON をそのまま管理者に渡して権限セットに含めて
 もらうのが早いです。
 
+> [!WARNING]
+> **ポリシーを作るときの `owner` は、参加者の `terraform.tfvars` の `owner` と一字一句
+> 同じにしてください。**ポリシーはリソース名 `<project_name>-<owner>-*` で許可範囲を
+> 絞るため、ここが食い違うと、**プレフィックスで絞った許可が 1 つ残らず効かなくなります**
+> (`Resource: "*"` の許可だけが通るので、権限が半分あるように見えて余計に紛らわしい)。
+> 手で IAM に登録するときに起きがちです ([#30](https://github.com/ykgw-daiki-nakamura/git-workflow-tutorial/issues/30))。
+>
+> `apply-setup-policy.sh` は生成とアタッチを 1 つの `owner` で行うので、この食い違いが
+> 起きません。参加者側は `./scripts/check-aws-permissions.sh` を実行すれば、食い違って
+> いる場合にその旨を表示します。
+
 <details>
 <summary>▶ このポリシーが何を許可しているか</summary>
 
