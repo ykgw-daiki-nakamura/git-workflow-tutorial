@@ -27,7 +27,18 @@ gitGraph
 git switch main && git pull
 git switch -c release/v1.0
 git push -u origin release/v1.0
+
+# push が origin に届いたか確かめる (SHA が 1 行返れば OK)
+git ls-remote --exit-code --heads origin release/v1.0
 ```
+
+> [!IMPORTANT]
+> **`git ls-remote` が何も返さないまま先に進まないでください。** 次の 3.2 で打つ RC タグは
+> 「origin の `release/*` ブランチ上のコミットであること」をワークフローが検証します。
+> ブランチが origin に無いままタグだけ push すると、そのコミットはどのリリースブランチにも
+> 含まれていないため、**Verify tag points to a release/\* branch で必ず失敗します**。
+> 失敗の原因はタグではなくブランチなので、タグを打ち直しても直りません。ブランチを
+> push したうえで、Actions から失敗した実行を **Re-run** すれば復旧できます。
 
 > [!NOTE]
 > リリースブランチは「これから出荷するもの」を main の開発の流れから
@@ -44,7 +55,16 @@ git push -u origin release/v1.0
 
 ## 3.2 RC タグを打つ
 
+タグは「今いるコミット」に付きます。origin の `release/v1.0` の先端と同じコミットに
+いることを確かめてから打ちます。
+
 ```bash
+git switch release/v1.0
+git fetch origin
+
+# 2 行が同じ SHA であること (ローカルの先端 = origin の先端)
+git rev-parse HEAD origin/release/v1.0
+
 git tag v1.0.0-rc.1
 git push origin v1.0.0-rc.1
 ```

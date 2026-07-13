@@ -9,9 +9,18 @@
 # 自分のリソースの名前 (gitflow-tutorial-<owner>) を先に控える。
 # destroy すると terraform の出力も消えるため、後からでは取れない
 PREFIX=$(terraform -chdir=terraform output -raw name_prefix)
+echo "${PREFIX}"
 
 terraform -chdir=terraform destroy
 ```
+
+> [!IMPORTANT]
+> **控えた `PREFIX` は、AWS リソースの作成者や管理者にも伝えてください。** この後の
+> ロググループ削除で使うだけの値ではありません。1 つの AWS アカウントを複数人で共有して
+> 演習した場合 ([管理者ガイド](./90-admin.md))、管理者は最後に参加者全員分の IAM ユーザーと
+> ポリシー (`gitflow-tutorial-<owner>-setup`) を削除します。その後片付けは、誰が
+> どの `owner` を使ったかが分かって初めて実行できます。自分のアカウントで一人で演習した
+> 場合は、自分が管理者なので報告は不要です。
 
 - ECR は `force_delete = true` なのでイメージごと消えます
 - S3 は `force_destroy = true` なのでオブジェクトごと消えます
