@@ -35,6 +35,13 @@ git push -u origin release/v1.0
 > v1.0 の出荷内容には影響しません。バージョンを上げるためのコミット
 > (version bump) は不要です — バージョンはタグからビルド時に注入されます。
 
+> [!TIP]
+> push が `GH013: Repository rule violations found` (`4 of 4 required status checks
+> are expected`) で拒否される場合、Ruleset が古い世代のままです。
+> `./scripts/setup-github.sh <mode>` (`solo` または `pair <レビュアー名>`) を
+> 再実行してから push し直してください。このスクリプトは冪等で、既存の Ruleset を
+> 上書きするだけなので、何度実行しても問題ありません。
+
 ## 3.2 RC タグを打つ
 
 ```bash
