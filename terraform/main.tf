@@ -2,8 +2,9 @@ terraform {
   required_version = ">= 1.7"
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.80"
+      source = "hashicorp/aws"
+      # 6.x が必要。lambda.tf の invoked_via_function_url は 5.x に存在しない。
+      version = "~> 6.0"
     }
   }
   # チュートリアル用途のためローカル state。実務では S3 backend を使うこと。
