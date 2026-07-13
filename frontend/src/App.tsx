@@ -84,7 +84,7 @@ export default function App() {
 
       <section className="checks">
         <Check label="version 一致" ok={versionMatch} pending={!loaded} />
-        <Check label="git_sha 一致" ok={shaMatch} pending={!loaded} />
+        <Check label="version 一致" ok={shaMatch} pending={!loaded} />
       </section>
 
       {loaded && (
