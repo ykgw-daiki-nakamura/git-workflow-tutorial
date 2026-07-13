@@ -212,6 +212,66 @@ terraform -chdir=terraform apply -target=aws_ecr_repository.backend
 terraform -chdir=terraform apply
 ```
 
+<details>
+<summary>▶ <b><code>terraform apply</code> の途中でターミナルが切れた / Codespace が再起動した場合</b></summary>
+
+CloudFront の作成に数分かかるため、この apply は途中でネットワークが切れたり、ブラウザの
+タブを閉じてしまったりしがちです。**作りかけのリソースは AWS 側に残っています**が、
+Terraform は state に書き切れていない可能性があります。次の順で確認してください。
+
+**1. ロックを外す**
+
+apply し直すと `Error acquiring the state lock` が出ることがあります。前のプロセスが
+掴んだままのロックが残っているためです。エラーに表示される Lock ID で外します。
+
+```bash
+terraform -chdir=terraform force-unlock <LOCK_ID>
+```
+
+> [!WARNING]
+> 外してよいのは**その apply が確実に死んでいる場合だけ**です。別のターミナルでまだ
+> apply が動いているなら、それが終わるのを待ってください。生きているプロセスから
+> ロックを奪うと、state が壊れます。
+
+**2. どこまで作られたかを見る**
+
+state と実物を突き合わせます。
+
+```bash
+terraform -chdir=terraform plan
+```
+
+差分が出れば、それが「まだ作られていないもの」です。**そのまま apply を流し直せば残りが
+作られます** (Terraform は作成済みのものを作り直しません)。
+
+**3. 完了していたか分からないとき**
+
+output が取れれば apply は完走しています。
+
+```bash
+terraform -chdir=terraform output
+```
+
+空やエラーになるなら未完了です。apply を流し直してください。
+
+</details>
+
+**7. state ファイルを管理者に提出する**
+
+> [!CAUTION]
+> `terraform/terraform.tfstate` は `terraform destroy` に**必須**のファイルです。
+> Codespace を削除すると state も一緒に消え、**リソースを一括削除する手段が失われます**
+> (残骸を 1 つずつ手で消すことになります)。**apply が成功したら、その場で提出してください。**
+
+`terraform/terraform.tfstate` をダウンロードし (VS Code のエクスプローラでファイルを右クリック →
+**Download**)、管理者の指定する場所 (共有ドライブなど) に置いてください。管理者が受領を確認して
+から次に進みます。自分の AWS アカウントで一人で演習している場合は、Codespace の外に控えて
+おけば十分です。
+
+> [!NOTE]
+> state に AWS の認証情報は入りませんが、リソース ID や ARN が並ぶため構成は読み取れます。
+> 演習の範囲外に共有しないでください。
+
 作成されるもの: ECR リポジトリ ×1、環境別 (dev / staging / production) に
 IAM ロール・Lambda・S3 バケット・CloudFront ディストリビューション各 ×3。すべて
 `gitflow-tutorial-<owner>-...` という名前で、`Owner=<owner>` タグが付きます。
