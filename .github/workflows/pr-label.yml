@@ -4,6 +4,12 @@
 # 人手で付けるとカテゴリ分けが「付け忘れ」で簡単に崩れるため、CI が
 # 唯一の正 (= PR タイトル) からラベルを導出する。
 #
+# ラベル名は type と 1:1 にする (feat -> "type: feat")。GitHub 既定の
+# enhancement / bug は流用しない。名前が規約の type とずれていると、
+# ラベルを見た人が「どのプレフィックスから来たのか」を頭の中で変換する必要があり、
+# 変換表を知らない人には対応が読み取れない。ラベルが type そのものなら、
+# PR タイトル -> ラベル -> リリースノートのカテゴリが一本の線で追える。
+#
 # ラベル名は 3 か所で揃えること:
 #   - このワークフロー (プレフィックス -> ラベル名)
 #   - scripts/setup-github.sh (ラベルの実体を作る)
@@ -42,20 +48,21 @@ jobs:
     steps:
       - name: Sync label with title prefix
         run: |
-          # このワークフローが管理するラベル。ここに無いラベル (手で付けた
-          # ものなど) には触れない。
-          MANAGED=(enhancement bug docs chore ci refactor test build perf revert)
+          # このワークフローが管理する type。ci.yml の pr-title ジョブが許可する
+          # 一覧と同じものを並べる。ここに無いラベル (手で付けたものなど) には触れない。
+          TYPES=(feat fix docs refactor perf test build ci chore revert)
 
           # "feat(api)!: 日本語の subject" -> "feat"
           TYPE=$(printf '%s' "${PR_TITLE}" | sed -nE 's/^([a-zA-Z]+)(\([^)]*\))?!?:.*/\1/p' | tr '[:upper:]' '[:lower:]')
 
-          case "${TYPE}" in
-            feat) WANT=enhancement ;;                            # 新機能 -> 🚀 Features
-            fix) WANT=bug ;;                                     # 修正   -> 🐛 Bug Fixes
-            docs | chore | ci | refactor | test | build | perf | revert)
-              WANT="${TYPE}" ;;                                  # それ以外 -> 同名のラベル
-            *) WANT="" ;;
-          esac
+          # ラベル名は type そのもの ("feat" -> "type: feat")。変換表は要らない。
+          WANT=""
+          for T in "${TYPES[@]}"; do
+            if [ "${T}" = "${TYPE}" ]; then
+              WANT="type: ${T}"
+              break
+            fi
+          done
 
           # プレフィックスが規約外。ここで既存ラベルを剥がすと、pr-title の
           # 失敗を直す前にラベルまで消えて混乱するので、何もせず抜ける。
@@ -68,9 +75,10 @@ jobs:
           CURRENT=$(gh pr view "${PR_NUMBER}" --json labels -q '.labels[].name')
 
           # 付け替え: タイトルが変わったら、前のプレフィックス由来のラベルを外す。
-          # 外さないと feat -> fix に直したときに enhancement と bug が併存し、
-          # リリースノートで 2 か所に出てしまう。
-          for LABEL in "${MANAGED[@]}"; do
+          # 外さないと feat -> fix に直したときに "type: feat" と "type: fix" が
+          # 併存し、リリースノートで 2 か所に出てしまう。
+          for T in "${TYPES[@]}"; do
+            LABEL="type: ${T}"
             if [ "${LABEL}" != "${WANT}" ] && grep -qxF "${LABEL}" <<< "${CURRENT}"; then
               echo "remove: ${LABEL}"
               gh pr edit "${PR_NUMBER}" --remove-label "${LABEL}"

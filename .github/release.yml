@@ -4,9 +4,12 @@
 # 付いたラベルでカテゴリ分けする。ラベルは .github/workflows/pr-label.yml が
 # PR タイトルのプレフィックスから自動付与する。
 #
-#   feat:  -> enhancement -> 🚀 Features
-#   fix:   -> bug         -> 🐛 Bug Fixes
-#   その他 -> 同名ラベル  -> 🧹 Maintenance / Other
+#   feat:  -> type: feat -> 🚀 Features
+#   fix:   -> type: fix  -> 🐛 Bug Fixes
+#   その他 -> type: <type> -> 🧹 Maintenance / Other
+#
+# ラベル名は Conventional Commits の type と 1:1 ("type: feat")。GitHub 既定の
+# enhancement / bug は使わない (理由は pr-label.yml の冒頭)。
 #
 # NOTE: 上から順に評価され、最初に一致したカテゴリにだけ入る。
 #       "*" は「どのカテゴリにも一致しなかった PR」を受ける catch-all なので、
@@ -15,10 +18,10 @@ changelog:
   categories:
     - title: 🚀 Features
       labels:
-        - enhancement
+        - "type: feat"
     - title: 🐛 Bug Fixes
       labels:
-        - bug
+        - "type: fix"
     - title: 🧹 Maintenance / Other
       labels:
         - "*"

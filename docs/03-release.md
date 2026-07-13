@@ -62,8 +62,10 @@ Release の本文には、backend の image digest に続いて **What's Changed
 このリリースに入ったマージ済み PR で、`.github/release.yml` の定義に従って
 🚀 Features / 🐛 Bug Fixes / 🧹 Maintenance にカテゴリ分けされます。カテゴリの
 判定材料は PR のラベルで、それは PR タイトルの `feat:` / `fix:` などから
-`PR Label` ワークフローが自動で付けたものです。**リリースノートは書くものでは
-なく、規約に従った PR タイトルの結果として出てくるもの**、という関係になっています。
+`PR Label` ワークフローが `type: feat` / `type: fix` として自動で付けたものです
+(ラベル名は Conventional Commits の type そのままにしてあります)。
+**リリースノートは書くものではなく、規約に従った PR タイトルの結果として
+出てくるもの**、という関係になっています。
 
 ## 3.3 staging で検品する
 
