@@ -50,7 +50,9 @@
         "cloudfront:ListDistributions",
         "cloudfront:ListOriginAccessControls",
         "cloudfront:GetCachePolicy",
-        "cloudfront:GetOriginRequestPolicy"
+        "cloudfront:GetOriginRequestPolicy",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig"
       ],
       "Resource": "*"
     },
@@ -80,8 +82,6 @@
       "Sid": "CloudFrontOwnDistributionsOnly",
       "Effect": "Allow",
       "Action": [
-        "cloudfront:GetDistribution",
-        "cloudfront:GetDistributionConfig",
         "cloudfront:UpdateDistribution",
         "cloudfront:DeleteDistribution",
         "cloudfront:CreateInvalidation",

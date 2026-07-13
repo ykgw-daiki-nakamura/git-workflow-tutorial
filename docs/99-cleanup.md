@@ -17,6 +17,17 @@ terraform -chdir=terraform destroy
 - S3 は `force_destroy = true` なのでオブジェクトごと消えます
 - CloudFront の削除には数分かかります
 
+> [!NOTE]
+> **`cloudfront:GetDistribution` で AccessDenied が出て destroy が止まる場合**、ポリシーが
+> 古いままです。管理者に `./scripts/apply-setup-policy.sh <owner>` の再実行を依頼して
+> (自分のアカウントなら自分で実行して) から、`terraform destroy` をもう一度流してください。
+> 削除自体は AWS 側で進んでいるので、2 回目は残りだけが片付きます。
+>
+> 参照権限を `Owner` タグで絞っていたのが原因です。Terraform は `DeleteDistribution` の後
+> `GetDistribution` が NotFound を返すまで待ちますが、**消えた瞬間にタグも消える**ため、
+> 条件付きだと NotFound の代わりに AccessDenied が返ってしまいます
+> ([管理者ガイド](./90-admin.md#絞りきれない箇所))。
+
 完了後、コンソールで残骸がないか確認してください
 (CloudWatch Logs のロググループ `/aws/lambda/<PREFIX>-*` は Lambda 削除後も残るため、
 気になる場合は手動で削除します)。
