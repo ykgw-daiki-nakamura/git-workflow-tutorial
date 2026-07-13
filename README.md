@@ -26,7 +26,8 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
         ├── ci.yml           # PR: タイトル検証 (Conventional Commits) + frontend/backend チェック
         ├── cd-dev.yml       # main push → dev 自動デプロイ
         ├── release-rc.yml   # v*-rc.* タグ → 唯一のビルド → Pre-release → staging
-        └── release-ga.yml   # v* タグ → 検証と昇格のみ (再ビルドなし) → production (承認ゲート)
+        ├── release-ga.yml   # v* タグ → 検証と昇格のみ (再ビルドなし) → production (承認ゲート)
+        └── rollback.yml     # 手動起動 → 過去の GA タグを再デプロイ (再ビルドなし) → production (承認ゲート)
 ```
 
 ## ワークフローと規約の対応
@@ -40,7 +41,8 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 | deploy many (digest 参照) | Lambda へ `repo@sha256:...` でデプロイ。GA は `crane tag` で digest にタグ追加 |
 | アーティファクトに rc サフィックスを焼き込まない | ビルド引数 `APP_VERSION` に基底バージョンを渡す |
 | 公開済みタグの不変性 | Rulesets (tag deletion/update 禁止) + ECR `IMMUTABLE` |
-| 本番デプロイの承認 | GitHub Environment `production` の必須レビュアー |
+| ロールバックも再ビルドしない | `rollback.yml` は過去の GA タグの digest / Release アセットを再デプロイするだけ (build ステップが存在しない) |
+| 本番デプロイの承認 | GitHub Environment `production` の必須レビュアー (`release-ga.yml` / `rollback.yml` とも) |
 | 環境別の権限分離 | OIDC `sub = repo:<repo>:environment:<env>` 条件付き IAM ロール |
 | upstream first / バックポート | `?template=backport.md` の PR テンプレート + `git cherry-pick -x` |
 
