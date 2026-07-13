@@ -46,11 +46,15 @@ CloudFront (環境ごとに 1 ディストリビューション × dev / staging
 
 ## セットアップ手順
 
-前提: **AWS 認証情報のみ** (取得方法は [第0章 0.1](./docs/00-setup.md#aws-認証情報を取得する))。
+前提: **AWS 認証情報のみ** (設定方法は [第0章 0.1](./docs/00-setup.md#aws-認証情報を設定する))。
 Terraform / Docker / gh CLI / jq / Node 22 / uv は
 [`.devcontainer/`](./.devcontainer/) に揃っているので、Codespaces か VS Code の
 *Reopen in Container* で開いてください。devcontainer を使わない場合は自分で用意します
 (詳細は [第0章](./docs/00-setup.md))。
+
+**演習環境を用意する側の人** (研修の主催者、または自分の AWS アカウントで一人で演習する人) は
+[管理者ガイド](./docs/90-admin.md) を参照してください。IAM ユーザーの作り方、必要な権限、
+1 つの AWS アカウントを複数人で共有する方法をまとめています。
 
 > [!IMPORTANT]
 > Rulesets と Environment 保護ルールを無料で使うには**パブリックリポジトリ**にするか、

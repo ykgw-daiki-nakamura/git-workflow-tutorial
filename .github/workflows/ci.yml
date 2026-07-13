@@ -9,6 +9,10 @@ on:
     branches:
       - main
       - "release/**"
+    # タイトルの修正は edited で発火する。squash merge では PR タイトルが
+    # そのままコミットメッセージになるため、タイトルを直しても pr-title が
+    # 再実行されないと規約違反のまま merge できてしまう。
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
