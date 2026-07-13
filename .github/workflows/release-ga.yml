@@ -143,12 +143,32 @@ jobs:
             --environment "Variables={APP_ENV=production,IMAGE_DIGEST=${{ steps.promote.outputs.digest }}}"
           aws lambda wait function-updated-v2 --function-name "${FUNCTION_NAME}"
 
+      # tar は RC のビルド時の mtime を復元する。aws s3 sync は「サイズが同じで、かつ
+      # ローカルが新しくない」ファイルをスキップするため、S3 に載っているものの方が
+      # 新しい状況 (ロールバック後の GA 再実行など) では、サイズの変わらない
+      # index.html だけが取り残される。JS はファイル名が変わるので新規に上がり、
+      # --delete で旧 JS は消える → 古い index.html が消えた JS を参照して真っ白になる。
+      # mtime を今に揃えて、必ず全ファイルを上書きさせる。
       - name: Deploy frontend to production
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
         run: |
-          aws s3 sync site "s3://${{ vars.S3_BUCKET }}" --delete
+          find site -type f -exec touch {} +
+          aws s3 sync site "s3://${BUCKET}" --delete
           aws cloudfront create-invalidation \
             --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
             --paths "/*"
+
+      # 壊れているのは S3 に残った方なので、実際に載った index.html を取得して突き合わせる
+      - name: Verify deployed index.html
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
+        run: |
+          aws s3 cp "s3://${BUCKET}/index.html" deployed-index.html
+          if ! cmp -s site/index.html deployed-index.html; then
+            echo "::error::S3 の index.html が配布物と一致しない (sync に取り残された)"
+            exit 1
+          fi
 
       - name: Show production URL
         run: echo "production => ${{ vars.APP_URL }}"

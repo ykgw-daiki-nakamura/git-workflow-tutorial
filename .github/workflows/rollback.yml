@@ -114,12 +114,37 @@ jobs:
             --environment "Variables={APP_ENV=production,IMAGE_DIGEST=${{ steps.image.outputs.digest }}}"
           aws lambda wait function-updated-v2 --function-name "${FUNCTION_NAME}"
 
+      # aws s3 sync は「サイズが同じで、かつローカルが新しくない」ファイルをスキップする。
+      # tar は tar.gz を作った時点 (= RC のビルド時) の mtime を復元するため、
+      # ロールバックではローカル側が必ず「今 S3 に載っているもの」より古くなる。
+      # index.html はバージョンが変わってもバイト数が変わらない (参照する JS 名の
+      # ハッシュ長が同じ) ので、そのままではスキップされてしまう。一方 JS は
+      # ファイル名が変わるので新規に上がり、--delete で旧 JS は消える。結果、
+      # 古い index.html が消えた JS を参照して、本番が真っ白になる。
+      # mtime を今に揃えて、必ず全ファイルを上書きさせる。
       - name: Deploy frontend to production
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
         run: |
-          aws s3 sync site "s3://${{ vars.S3_BUCKET }}" --delete
+          find site -type f -exec touch {} +
+          aws s3 sync site "s3://${BUCKET}" --delete
           aws cloudfront create-invalidation \
             --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
             --paths "/*"
+
+      # 取りこぼしは「デプロイは成功、サイトは真っ白」という形で出る (index.html だけが
+      # 古いまま残り、それが参照する JS は --delete で消えている)。ローカルの index.html を
+      # 見ても気付けない — 壊れているのは S3 に残った方なので、実際に載ったものを取得して
+      # バイトで突き合わせる
+      - name: Verify deployed index.html
+        env:
+          BUCKET: ${{ vars.S3_BUCKET }}
+        run: |
+          aws s3 cp "s3://${BUCKET}/index.html" deployed-index.html
+          if ! cmp -s site/index.html deployed-index.html; then
+            echo "::error::S3 の index.html が配布物と一致しない (sync に取り残された)"
+            exit 1
+          fi
 
       - name: Summary
         run: |
