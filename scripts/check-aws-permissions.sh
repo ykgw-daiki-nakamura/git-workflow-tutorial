@@ -115,7 +115,7 @@ echo
 # 対して権限の有無によらず NoSuchBucket を返すし、cloudfront:CreateDistribution は
 # タグ条件つきなので実際に作るまで分からない。ここで OK でも apply が落ちる余地は残る。
 if ((${#DENIED[@]} == 0)); then
-  echo "必要な権限は揃っています。docs/00-setup.md の 0.3 へ進んでください。"
+  echo "必要な権限は揃っています。docs/00-setup.md の 0.2 へ進んでください。"
   exit 0
 fi
 

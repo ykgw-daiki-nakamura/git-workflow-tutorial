@@ -161,7 +161,7 @@ OIDC プロバイダまで作るため、権限を絞りすぎると `terraform 
 ./scripts/apply-setup-policy.sh <自分の owner> --user <自分の IAM ユーザー名>
 ```
 
-`owner` は好きな値で構いません。ただし [第0章 0.3](./00-setup.md#03-aws-リソースの作成) で
+`owner` は好きな値で構いません。ただし [第0章 0.2](./00-setup.md#02-aws-リソースの作成) で
 `terraform.tfvars` に書く `owner` と同じにしてください。
 
 ### まっさらなアカウントで OIDC プロバイダも自分で作る場合
