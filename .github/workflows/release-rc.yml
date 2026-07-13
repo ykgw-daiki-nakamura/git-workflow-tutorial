@@ -39,14 +39,29 @@ jobs:
         with:
           fetch-depth: 0 # ブランチ包含チェックに全履歴が必要
 
+      # 落ちる原因はタグ側とは限らない。release ブランチが origin に push されて
+      # いなければ、正しいコミットに打ったタグでもここで落ちる (どのリモート
+      # ブランチにも含まれないため)。どちらなのかログで区別できるようにする。
       - name: Verify tag points to a release/* branch
         run: |
           TAG_COMMIT=$(git rev-list -n 1 "${TAG}")
-          if ! git branch -r --contains "${TAG_COMMIT}" --format='%(refname:short)' \
-               | grep -qE '^origin/release/'; then
-            echo "::error::RC タグは release/* ブランチ上のコミットに打つこと (規約: リリースブランチ運用)"
-            exit 1
+          # 空マッチの grep は 1 を返す。set -e で黙って落ちないよう || true で受ける
+          BRANCHES=$(git branch -r --contains "${TAG_COMMIT}" --format='%(refname:short)' \
+                     | grep '^origin/' || true)
+
+          if grep -qE '^origin/release/' <<<"${BRANCHES}"; then
+            exit 0
           fi
+
+          # release ブランチを push し忘れた場合、その先端は main と同じコミットなので
+          # 一覧には origin/main だけが出る。「タグを打つ場所を間違えた」と区別が
+          # つかないため、どちらであっても push 漏れの確認を促す。
+          echo "::error::RC タグは release/* ブランチ上のコミットに打つこと (規約: リリースブランチ運用)"
+          echo "タグ ${TAG} のコミット ${TAG_COMMIT} を含む origin のブランチ: $(tr '\n' ' ' <<<"${BRANCHES:-(なし)}")"
+          echo "release ブランチを origin に push し忘れていませんか? push すれば、このタグは"
+          echo "打ち直さずに済みます (同じコミットのままなので、失敗した実行を Re-run するだけ):"
+          echo "  git switch release/vX.Y && git push -u origin release/vX.Y"
+          exit 1
 
       - name: Derive base version
         id: ver
