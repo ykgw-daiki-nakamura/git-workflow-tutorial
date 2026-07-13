@@ -213,8 +213,8 @@ export AWS_PROFILE=<作ったプロファイル名>
 | `LambdaFunctions` | `gitflow-tutorial-alice-*` 関数への全操作 | 関数と Function URL の作成・削除 |
 | `CloudFrontCreateDistributionTaggedAsMine` | ディストリビューションの作成。ただし **`Owner=alice` タグを付ける場合のみ** (`aws:RequestTag`) | CloudFront の作成系アクションはリソース指定に対応していないため、`Resource` は `*` にせざるを得ない。代わりに**作成時のタグを条件にする**ことで「自分名義でしか作れない」に絞る |
 | `CloudFrontTagDistributionAsMine` | ディストリビューションへの `Owner=alice` タグ付与 | Terraform は内部で `CreateDistributionWithTags` を呼ぶ。この API は IAM 上 `CreateDistribution` **と** `TagResource` の両方で認可されるため、片方だけでは作成できない |
-| `CloudFrontOwnDistributionsOnly` | 参照・更新・削除・invalidation。ただし **`Owner=alice` タグが付いたものだけ** (`aws:ResourceTag`) | 他の参加者のディストリビューションを触れないようにする本体。ここが効くので `Resource` が `distribution/*` でも実質「自分のものだけ」になる |
-| `CloudFrontReadOnlyUnscopable` / `CloudFrontOriginAccessControlUnscopable` | ディストリビューションの一覧、キャッシュポリシーの参照、**OAC の全操作** | 絞れない箇所 ([下記](#絞りきれない箇所)) |
+| `CloudFrontOwnDistributionsOnly` | 更新・削除・invalidation・タグの削除。ただし **`Owner=alice` タグが付いたものだけ** (`aws:ResourceTag`) | 他の参加者のディストリビューションを**変更・削除できない**ようにする本体。ここが効くので `Resource` が `distribution/*` でも実質「自分のものだけ」になる |
+| `CloudFrontReadOnlyUnscopable` / `CloudFrontOriginAccessControlUnscopable` | ディストリビューションの一覧と参照、キャッシュポリシーの参照、**OAC の全操作** | 絞れない箇所 ([下記](#絞りきれない箇所)) |
 | `IamRoles` | `gitflow-tutorial-alice-*` **ロールのみ**の作成・削除・インラインポリシー設定 | デプロイ用ロール ×3 と Lambda 実行ロール |
 | `IamAttachLambdaBasicExecutionOnly` | 管理ポリシーのアタッチを `AWSLambdaBasicExecutionRole` **だけ**に限定 | 任意の管理ポリシー (例: `AdministratorAccess`) をアタッチできると権限昇格になるため条件で塞いでいる |
 | `IamPassRoleToLambdaOnly` | `gitflow-tutorial-alice-lambda-exec` を **Lambda にだけ** 渡せる | Lambda 作成時の `PassRole`。渡し先サービスを条件で限定 |
@@ -230,8 +230,16 @@ export AWS_PROFILE=<作ったプロファイル名>
 同じアカウントを共有する相手が信頼できる同僚である、という前提で使ってください。厳密に
 分離するなら、参加者ごとに AWS アカウントを分ける (AWS Organizations) のが唯一確実な方法です。
 
-塞げていないのは次の 3 点です。
+塞げていないのは次の 4 点です。
 
+- **CloudFront の参照 (`GetDistribution`)**: 参照系は**タグで絞れません**。`terraform destroy` は
+  `DeleteDistribution` を投げたあと、`GetDistribution` が「そんなディストリビューションは無い」を
+  返すまでポーリングして削除完了を確かめます。ところが**消えた瞬間にタグも消える**ため、
+  `aws:ResourceTag/Owner` を条件にしていると、待っている NotFound の代わりに AccessDenied が
+  返り、destroy がそこで止まります。そもそも `ListDistributions` はリソース指定に対応しておらず
+  `Resource: "*"` にするしかなく、他人のディストリビューションの設定もそこから読めます。
+  参照を絞っても隠せるものは無いので、`GetDistribution` も `*` にしています。
+  **読めるだけで、変更・削除はできません** (そちらは `Owner` タグで絞っています)。
 - **OAC (Origin Access Control)**: CloudFront の OAC は**タグに対応していません** (ARN 以外に
   条件を書く手掛かりがない)。しかも作成アクションはリソース指定にも対応していないため、
   `Resource: "*"` にするしかありません。他人の OAC を消せてしまいますが、使用中の OAC は
