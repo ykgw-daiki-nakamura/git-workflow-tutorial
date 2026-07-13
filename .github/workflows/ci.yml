@@ -6,6 +6,10 @@ name: CI
 
 on:
   pull_request:
+    # 既定の活動タイプ (opened / synchronize / reopened) には `edited` が
+    # 含まれないため、それだけだと PR タイトルを直しても pr-title が再実行されず、
+    # 必須チェックが fail のまま残ってマージできなくなる。
+    types: [opened, edited, synchronize, reopened]
     branches:
       - main
       - "release/**"
