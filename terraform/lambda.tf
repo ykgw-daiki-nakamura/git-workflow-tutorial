@@ -59,3 +59,24 @@ resource "aws_lambda_permission" "function_url" {
   principal              = "*"
   function_url_auth_type = "NONE"
 }
+
+# 2025-10 以降に作られた Function URL は、上の InvokeFunctionUrl だけでは呼び出せない。
+# InvokeFunction も明示的に許可しないと、authorization_type = "NONE" であっても
+# 認可レイヤで 403 Forbidden になり、リクエストはアプリまで届かない。
+#   https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html
+#
+# 仕様変更より前に作られた Function URL は影響を受けないため、既存環境では再現せず、
+# 新しく作った環境だけが壊れる (#40)。
+#
+# invoked_via_function_url で Function URL 経由の呼び出しに限定する。外すと
+# principal = "*" に対する無条件の InvokeFunction 許可になり、Lambda の API を
+# 直接叩く経路まで開いてしまう。
+resource "aws_lambda_permission" "function_url_invoke" {
+  for_each = local.environments
+
+  statement_id             = "AllowPublicFunctionUrlInvoke"
+  action                   = "lambda:InvokeFunction"
+  function_name            = aws_lambda_function.api[each.key].function_name
+  principal                = "*"
+  invoked_via_function_url = true
+}
