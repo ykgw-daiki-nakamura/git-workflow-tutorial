@@ -26,21 +26,59 @@ function short(sha: string | null | undefined, n = 12) {
   return sha.length > n ? sha.slice(0, n) : sha;
 }
 
+// 失敗したとき、どのパスが何を返したのかまで含めて投げる。
+//
+// fetch は 4xx/5xx では reject しないため、素直に .json() だけ繋ぐと、拾える失敗は
+// 「JSON として読めなかった」に潰れる。それだけでは原因を絞れない。
+//
+// とくに /api の 403 は「200 なのに HTML」として返ってくる。CloudFront の
+// custom_error_response (403 -> 200 + /index.html) が SPA ルーティングのために
+// ディストリビューション全体へ効いており、API の 403 まで index.html に化けるため
+// (terraform/cloudfront.tf)。content-type を見ておかないと、この状況に気付けない。
+async function fetchJson<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path);
+  } catch (e) {
+    throw new Error(`${path} に接続できません (${e instanceof Error ? e.message : String(e)})`);
+  }
+
+  if (!res.ok) {
+    throw new Error(`${path} が HTTP ${res.status} ${res.statusText} を返しました`);
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `${path} が JSON ではなく ${contentType || "不明な形式"} を返しました ` +
+        `(CloudFront のエラーページに置き換わっている可能性があります)`,
+    );
+  }
+
+  return (await res.json()) as T;
+}
+
 export default function App() {
   const [fe, setFe] = useState<FrontendManifest | null>(null);
   const [be, setBe] = useState<BackendManifest | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/version.json").then((r) => r.json()),
-      fetch("/api/version").then((r) => r.json()),
-    ])
-      .then(([f, b]) => {
-        setFe(f);
-        setBe(b);
-      })
-      .catch(() => setError("バージョン情報を取得できません。バックエンドは起動していますか?"));
+    // allSettled で 2 本を独立に扱う。片方だけ落ちたときに、生きている方の
+    // 検品結果を捨てずに済み、どちらが落ちたのかも名指しできる。
+    Promise.allSettled([
+      fetchJson<FrontendManifest>("/version.json"),
+      fetchJson<BackendManifest>("/api/version"),
+    ]).then(([f, b]) => {
+      if (f.status === "fulfilled") setFe(f.value);
+      if (b.status === "fulfilled") setBe(b.value);
+
+      setErrors(
+        [f, b]
+          .filter((r) => r.status === "rejected")
+          .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason))),
+      );
+    });
   }, []);
 
   const loaded = fe !== null && be !== null;
@@ -59,7 +97,11 @@ export default function App() {
         <span className={`env env-${env}`}>{env}</span>
       </header>
 
-      {error && <p className="error">{error}</p>}
+      {errors.map((message) => (
+        <p className="error" key={message}>
+          {message}
+        </p>
+      ))}
 
       <section className="cards">
         <Artifact
