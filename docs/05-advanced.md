@@ -66,23 +66,55 @@ v1.0.1 に問題が見つかった想定で、production を v1.0.0 に戻しま
 build once の世界では、ロールバックは「昔のアーティファクトを再デプロイする」
 だけです。再ビルドは不要どころか禁止です。
 
-ヒント:
+### 手で戻してみる
+
+まず、何が起きるのかを手で確かめます。**戻し先の中身を作り直す作業がどこにも
+無い**ことに注目してください。
 
 ```bash
-# v1.0.0 の digest を調べる
+# v1.0.0 の digest を調べる (GA のときに push されたイメージ。今も ECR にある)
+REPO=$(terraform -chdir=terraform output -raw ecr_repository_name)
 aws ecr describe-images \
-  --repository-name $(terraform -chdir=terraform output -raw ecr_repository_name) \
+  --repository-name "${REPO}" \
   --image-ids imageTag=v1.0.0 \
   --query 'imageDetails[0].imageDigest' --output text
 
 # backend: update-function-code --image-uri <repo>@<digest>
-# frontend: gh release download v1.0.0 -p 'dist-*.tar.gz' → 検証 → s3 sync
+# frontend: gh release download v1.0.0 -p 'dist-*.tar.gz' → sha256sum -c → s3 sync
 ```
 
-発展課題: この手順を `workflow_dispatch` (入力: 戻し先タグ) の
-`rollback.yml` として自動化してみてください。`release-ga.yml` の後半が
-ほぼそのまま流用できます。environment: production を付けて承認ゲートを
-通すのを忘れずに。
+### ワークフローで戻す
+
+同じことを `Rollback production` ワークフロー
+([`.github/workflows/rollback.yml`](../.github/workflows/rollback.yml)) が行います。
+**Actions → Rollback production → Run workflow** で、戻し先タグ (`v1.0.0`) を
+入力して実行してください。
+
+`production` 環境を使うので、GA と同じく**承認ゲートで止まります**。ロールバックは
+本番を書き換える操作である以上、通る門は同じです。承認すると v1.0.0 の digest が
+そのまま Lambda に載り、v1.0.0 の tar.gz が S3 に同期されます。
+
+終わったら production の検品票を開いて、`version` と `image_digest` が v1.0.0 の
+ものに戻っていることを確認します。
+
+### 読みどころ
+
+- **`docker build` も `npm run build` も無い。** GA と同じく、ロールバックも「既に
+  あるものを指し直す」だけの操作です
+- **`contents: read`。** 新しい Release を作らないので、書き込み権限すら要りません
+- **`concurrency: group: release`。** リリースとロールバックが交差して、production に
+  中途半端な組み合わせが載るのを防いでいます
+- **GA タグしか受け付けない。** RC タグや、Release の無いタグ、Pre-release には戻せません。
+  「production に載ってよいのは GA だけ」という規約は、緊急時にも緩みません
+
+> [!NOTE]
+> ロールバックしても Git のタグや Release は動きません (`v1.0.1` は Release として
+> 残ったままです)。**出荷の履歴は記録なので、書き換えない**のが正しい姿です。動かすのは
+> 「今どれが載っているか」だけ。修正版は `v1.0.2` として前に進めます (5.4 の設計演習へ)。
+
+発展課題: このワークフローを `environment` も入力にして staging にも戻せるように
+してみてください。「どの環境に、どの承認者で」が入力次第で変わることになります —
+それは安全でしょうか?
 
 ## 5.4 ホットフィックスの設計を考える
 
