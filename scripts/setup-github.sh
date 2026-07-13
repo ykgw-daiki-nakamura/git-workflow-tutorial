@@ -188,6 +188,13 @@ apply_ruleset() {
 # main と release/* に同一の保護をかける。ブランチ条件だけが異なる。
 # ref は素の文字列で受け取り、JSON 化はこの関数が担う。呼び出し側に
 # クォートを任せると、付け忘れが不正な JSON になって初めて分かる。
+#
+# required_status_checks の do_not_enforce_on_create: true は「ブランチの新規作成」
+# だけをチェック必須の対象から外す。新しく切った release/* の先端コミットには
+# チェック結果がまだ無く、GitHub はこれを「必須チェックが未達」とみなすため、
+# これが無いと release ブランチを push した瞬間に GH013 で拒否され、
+# そもそもリリースブランチを作れない。作成後の push には従来どおり
+# チェックが要求されるので、保護は緩まない。
 branch_ruleset_body() {
   local name="$1" ref="$2"
   cat <<EOF
@@ -214,6 +221,7 @@ branch_ruleset_body() {
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": true,
         "required_status_checks": ${STATUS_CHECKS_JSON}
       }
     }

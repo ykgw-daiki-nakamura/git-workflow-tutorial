@@ -34,6 +34,38 @@ jq_required() {
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 OUTPUTS=$(terraform -chdir=terraform output -json)
 
+# OIDC の信頼ポリシー (terraform/oidc.tf) は sub が
+#   repo:<github_repository>:environment:<env>
+# であることを StringEquals で要求する。一方 GitHub が発行する OIDC トークンの sub は
+# リポジトリの正式表記をそのまま使う。ここが食い違うと、ロール ARN も IAM 権限も正しいのに
+# GitHub Actions が
+#   Not authorized to perform sts:AssumeRoleWithWebIdentity
+# で落ちる。しかも落ちるのは terraform ではなく後続の Actions 実行時、つまり原因から
+# 最も遠い場所なので、AWS の権限問題だと思い込んで時間を溶かす (Issue #42)。
+# variables を 1 つも書き込む前に、ここで止める。
+#
+# 比較対象は terraform.tfvars ではなく terraform の出力から取る。信頼ポリシーに実際に
+# 焼かれているのは apply 済みの値であり、「tfvars を直したが apply していない」も捕まる。
+CONFIGURED_REPO=$(jq_required '.github_repository.value' "${OUTPUTS}")
+if [[ ${CONFIGURED_REPO} != "${REPO}" ]]; then
+  echo "ERROR: github_repository が実際のリポジトリと一致しません" >&2
+  echo "       terraform に焼かれている値: ${CONFIGURED_REPO}" >&2
+  echo "       実際のリポジトリ          : ${REPO}" >&2
+  # 大文字小文字だけの違いは見た目で気付けない。名指ししないと直せない。
+  if [[ ${CONFIGURED_REPO,,} == "${REPO,,}" ]]; then
+    echo "" >&2
+    echo "       違いは大文字小文字だけです。信頼ポリシーの条件は StringEquals なので、" >&2
+    echo "       これも不一致として扱われます。" >&2
+  fi
+  echo "" >&2
+  echo "       このまま進めても、GitHub Actions が OIDC でロールを assume できず" >&2
+  echo "       'Not authorized to perform sts:AssumeRoleWithWebIdentity' で落ちます。" >&2
+  echo "       terraform/terraform.tfvars の github_repository を次の値に直し、" >&2
+  echo "       terraform -chdir=terraform apply を実行してください:" >&2
+  echo "         github_repository = \"${REPO}\"" >&2
+  exit 1
+fi
+
 # 環境名は terraform の local.environments を唯一の定義元とし、
 # その出力から導出する。ここで列挙すると terraform 側への追加が
 # 無言で無視されるため。
