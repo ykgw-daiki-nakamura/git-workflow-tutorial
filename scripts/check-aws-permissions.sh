@@ -99,6 +99,13 @@ check any "GitHub OIDC 連携" \
   "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
 check any "CloudFront ディストリビューションの作成" \
   "cloudfront:ListDistributions" aws cloudfront list-distributions
+# 終章の destroy まで表面化しないのを、ここで先に捕まえる (Issue #54)。
+# 参照を Owner タグで絞った古いポリシーだと、destroy が CloudFront の削除待ちで落ちる。
+# Terraform は DeleteDistribution の後、GetDistribution が NotFound を返すまで待つが、
+# 消えた瞬間にタグも消えるため、条件付きだと NotFound の代わりに AccessDenied が返るため。
+# 存在しない ID にもタグは無いので、ここで叩けば同じ形で古いポリシーを炙り出せる。
+check any "終章での CloudFront の削除" \
+  "cloudfront:GetDistribution" aws cloudfront get-distribution --id E000000000000
 check any "終章での後片付け" \
   "logs:DescribeLogGroups" aws logs describe-log-groups
 
