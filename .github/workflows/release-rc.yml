@@ -107,12 +107,17 @@ jobs:
           EOF
           echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
 
+      # --generate-notes で「What's Changed」(マージ済み PR の一覧) を GitHub に
+      # 生成させる。カテゴリ分けは .github/release.yml のラベル定義に従う。
+      # --notes と併用でき、--notes の本文のあとに生成ノートが続く。digest は
+      # トレーサビリティ (この Release がどのイメージか) のために本文へ残す。
       - name: Create Pre-release with artifacts
         run: |
           gh release create "${TAG}" \
             --prerelease \
             --title "${TAG}" \
             --notes "Release candidate. Backend digest: \`${{ steps.build.outputs.digest }}\`" \
+            --generate-notes \
             "${{ steps.artifact.outputs.asset }}" checksums.txt release-manifest.json
 
       - name: Deploy backend to staging (digest 参照)

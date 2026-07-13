@@ -93,13 +93,43 @@ jobs:
           mkdir -p site
           tar -xzf dist-*.tar.gz -C site
 
+      # 自動生成ノート (What's Changed) の差分基準タグを決める。
+      #
+      # GitHub は既定で「直前のリリース」を基準に差分を作る。GA (v1.0.0) の直前は
+      # 同一コミットの RC (v1.0.0-rc.1) なので、既定に任せると「RC からの差分 = 空」
+      # のノートになってしまう。そこで基準を直前の *GA* タグに固定する。
+      #
+      # git tag -l 'v[0-9]*' --sort=-v:refname で新しい順に並べ、-rc. を除外し、
+      # 今回の GA タグの 1 つ後ろ (= 1 つ前のバージョン) を取る。
+      # 初回 GA では前の GA が存在しないため空になる。その場合は
+      # --notes-start-tag を付けず、GitHub の既定 (最初のコミットから) に任せる。
+      - name: Resolve previous GA tag (notes の差分基準)
+        id: prev
+        run: |
+          GA_TAGS=$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v -- '-rc\.' || true)
+          PREV_GA=$(awk -v cur="${TAG}" 'found { print; exit } $0 == cur { found = 1 }' <<< "${GA_TAGS}")
+          if [ -n "${PREV_GA}" ]; then
+            echo "自動生成ノートの差分基準: ${PREV_GA} .. ${TAG}"
+          else
+            echo "直前の GA タグが無い (初回 GA)。差分基準は GitHub の既定に任せる"
+          fi
+          echo "prev_ga=${PREV_GA}" >> "$GITHUB_OUTPUT"
+
+      # --notes と --generate-notes は併用でき、--notes の本文のあとに生成ノートが
+      # 続く。RC からの昇格である旨と digest は、トレーサビリティのために残す。
       - name: Create GA release (RC のアセットをそのまま再利用)
         env:
           RC_TAG: ${{ steps.rc.outputs.rc_tag }}
+          PREV_GA: ${{ steps.prev.outputs.prev_ga }}
         run: |
+          NOTES_ARGS=(--generate-notes)
+          if [ -n "${PREV_GA}" ]; then
+            NOTES_ARGS+=(--notes-start-tag "${PREV_GA}")
+          fi
           gh release create "${TAG}" \
             --title "${TAG}" \
             --notes "Promoted from ${RC_TAG} (同一アーティファクト)。Backend digest: \`${{ steps.promote.outputs.digest }}\`" \
+            "${NOTES_ARGS[@]}" \
             dist-*.tar.gz checksums.txt release-manifest.json
 
       - name: Deploy backend to production (digest 参照)
