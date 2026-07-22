@@ -19,3 +19,4 @@ terraform.tfvars
 # misc
 .DS_Store
 .claude/
+credentials/
