@@ -85,6 +85,23 @@ IAM ユーザー名を `owner` と別にしたい場合は `--user` で渡しま
 **この「許可する名前」が、参加者の `terraform.tfvars` の `owner` から組み立てられる名前と
 一致している**ことを確認してください。ここがこの手順の要です。
 
+### 人数分をまとめて作る
+
+`user1` 〜 `userN` のような連番で用意するなら、上の手順を一括実行するスクリプトがあります。
+
+```bash
+./scripts/create-participants.sh        # 既定で user1 〜 user15
+./scripts/create-participants.sh 1 5    # 開始 終了 を指定
+```
+
+IAM ユーザー名は `git-workflow-tutorial-userN`、`owner` は `userN` になります。
+発行したアクセスキーは `credentials/participant-access-keys.csv` (gitignore 済み) に
+追記されるので、そこから参加者に配ってください。**配り終えたら CSV は削除します。**
+
+3 つのステップ (ユーザー作成・ポリシー適用・アクセスキー発行) はすべて冪等です。
+既にあるユーザーは作らず、アクセスキーも**1 つも無いときだけ**発行するので、
+ポリシーの貼り直し目的で何度実行しても、キーが増えることはありません。
+
 ## リポジトリを更新したら、ポリシーを貼り直す
 
 > [!IMPORTANT]
@@ -95,6 +112,8 @@ IAM ユーザー名を `owner` と別にしたい場合は `--user` で渡しま
 ```bash
 for OWNER in alice bob carol; do ./scripts/apply-setup-policy.sh "${OWNER}"; done
 ```
+
+連番で作った場合は `./scripts/create-participants.sh` をもう一度実行するだけで貼り直せます。
 
 このスクリプトは冪等です。ポリシーが無ければ作り、あれば新しいバージョンに切り替えるだけ。
 古い名前のポリシー (`gitflow-tutorial-setup`) が付いていれば検出してデタッチします。
