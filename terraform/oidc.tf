@@ -2,6 +2,9 @@
 # ポイント: sub 条件を "environment:<env>" に限定しているため、
 # GitHub Environments の保護ルール (production の必須レビュアー承認など) を
 # 通過しない限り、対応する AWS ロールを assume できない。
+#
+# sub のリポジトリ部分は名前ベースと不変 ID の 2 形式がありうる (locals の gh_owner の
+# 説明を参照)。両方を許すため sub 条件は StringLike にしてある。
 
 # OIDC プロバイダはアカウント共有リソースなので、作成するかどうかを
 # var.create_oidc_provider で選ぶ (既定は false = 既存を参照。理由は variables.tf)。
@@ -32,6 +35,17 @@ locals {
     ? aws_iam_openid_connect_provider.github[0].arn
     : data.aws_iam_openid_connect_provider.github[0].arn
   )
+
+  # GitHub OIDC の sub 照合に使う owner / repo。github_repository は "owner/repo"。
+  # GitHub は「不変 ID (immutable ID)」のロールアウトで、sub のリポジトリ部分を
+  #   repo:<owner>@<数値>/<repo>@<数値>:environment:<env>
+  # という形で発行する。名前ベース (repo:<owner>/<repo>:...) だけを StringEquals で
+  # 許すと、ロールアウトが当たったアカウントから順に、ロールも権限も正しいのに
+  #   Not authorized to perform sts:AssumeRoleWithWebIdentity
+  # で落ちる。名前は一致して見えるのに数値 ID の部分だけ食い違うため、原因が非常に
+  # 見えにくい。owner / repo の直後にワイルドカードを挟み、旧形式と新形式の両方を許す。
+  gh_owner = split("/", var.github_repository)[0]
+  gh_repo  = split("/", var.github_repository)[1]
 }
 
 data "aws_iam_policy_document" "assume" {
@@ -48,10 +62,17 @@ data "aws_iam_policy_document" "assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
+    # StringLike で 2 形式を許可する (詳細は locals の gh_owner の説明):
+    #   - 旧: repo:<owner>/<repo>:environment:<env>         (名前ベース。ワイルドカード無し = 完全一致)
+    #   - 新: repo:<owner>@<id>/<repo>@<id>:environment:<env> (不変 ID。@ の後だけを * で吸収)
+    # environment:<env> の縛りは両形式で保つため、環境ゲートの強制力は変わらない。
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${each.key}"]
+      values = [
+        "repo:${var.github_repository}:environment:${each.key}",
+        "repo:${local.gh_owner}@*/${local.gh_repo}@*:environment:${each.key}",
+      ]
     }
   }
 }
