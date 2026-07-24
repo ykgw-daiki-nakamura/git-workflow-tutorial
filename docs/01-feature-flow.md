@@ -5,9 +5,17 @@
 
 この章で身につく型:
 
-```
-Issue → feature ブランチ → 自由にコミット → Conventional Commits な PR
-→ CI 通過 → squash merge → main はきれいな履歴 → dev に自動デプロイ
+```mermaid
+flowchart LR
+    I[Issue] --> B
+    subgraph br["feature ブランチ (コミットメッセージは雑で OK)"]
+        B[ブランチを切る] --> C[自由にコミット]
+        C --> PR[PR を作る<br>タイトルだけ Conventional Commits]
+    end
+    PR --> CI[CI 通過]
+    CI --> SQ{{squash merge}}
+    SQ --> M[main<br>きれいな履歴]
+    M --> D[dev へ自動デプロイ]
 ```
 
 ## 1.1 Issue を作る
@@ -43,13 +51,23 @@ git switch -c feature/1-footer-env
       </footer>
 ```
 
-ローカルで確認します (別ターミナルで backend も起動)。
+ローカルで確認します。backend と frontend は**それぞれ別のターミナル**で起動し、
+どちらも動かしたままにします (`Ctrl+C` で止まります)。
+
+ターミナル1 (backend):
 
 ```bash
-# ターミナル1
-cd backend && uv sync && uv run uvicorn app.main:app --port 8080
-# ターミナル2
-cd frontend && npm install && npm run dev
+cd backend
+uv sync
+uv run uvicorn app.main:app --port 8080
+```
+
+ターミナル2 (frontend):
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 http://localhost:5173 で表示を確認したらコミットして push します。
