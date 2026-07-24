@@ -70,7 +70,8 @@ aws sts get-caller-identity   # Account / Arn が返れば OK
 > [!CAUTION]
 > アクセスキーはパスワードと同じです。リポジトリにコミットしない (`.gitignore` 済みの
 > `terraform.tfvars` にも書かない)、Slack やメールに貼らない。演習が終わったら
-> [終章](./99-cleanup.md) で削除します。
+> [終章](./99-cleanup.md) で Codespaces secrets を削除します (AWS 側のキーは管理者が
+> 消します)。
 
 <details>
 <summary>▶ <b>自分の AWS アカウントで演習する場合 / 演習環境を用意する側の場合</b></summary>

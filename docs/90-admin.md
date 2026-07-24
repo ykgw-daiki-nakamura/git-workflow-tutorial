@@ -281,5 +281,87 @@ export AWS_PROFILE=<作ったプロファイル名>
 | コストの按分 | 全リソースに `Owner` タグが付くので、コスト配分タグとして有効化すれば参加者ごとの内訳が取れます |
 | 分離の強度 | 「事故」は防げますが、悪意には耐えません ([絞りきれない箇所](#絞りきれない箇所)) |
 
-演習後の後片付け (IAM ユーザー・ポリシー・アクセスキーの削除) は
-[終章](./99-cleanup.md)に書いています。
+## 演習後の後片付け
+
+参加者がやるのは、自分のリソースの `terraform destroy` と、自分の GitHub に登録した
+Codespaces secrets の削除まで ([終章](./99-cleanup.md))。**AWS アカウントに残るもの
+(IAM ユーザー・ポリシー・アクセスキー) は管理者が消します。**
+
+> [!IMPORTANT]
+> **参加者全員の `terraform destroy` が終わってから**始めてください。先に IAM ユーザーや
+> ポリシーを消すと、その参加者は destroy できなくなり、リソースが宙に浮きます。
+
+### 1. リソースが残っていないか確認する
+
+全リソースに `Purpose=git-workflow-tutorial` と `Owner=<owner>` タグが付くので、タグで
+一覧できます。何も返らなければ参加者側の後片付けは完了しています。
+
+```bash
+aws resourcegroupstaggingapi get-resources \
+  --tag-filters "Key=Purpose,Values=git-workflow-tutorial" \
+  --query 'ResourceTagMappingList[].[ResourceARN]' --output text
+```
+
+残っている場合は、`Owner` タグの値がそのまま `owner` です。本人に destroy を依頼するか、
+管理者権限で消してください。
+
+CloudWatch Logs のロググループは Lambda を消しても残り、タグも付かないので、参加者が
+[終章](./99-cleanup.md)で消していなければ手元に残ります。管理者はプレフィックスで
+全員分をまとめて消せます。
+
+```bash
+aws logs describe-log-groups \
+  --log-group-name-prefix "/aws/lambda/gitflow-tutorial" \
+  --query 'logGroups[].logGroupName' --output text | tr '\t' '\n' \
+  | xargs -r -I{} aws logs delete-log-group --log-group-name {}
+```
+
+### 2. IAM ユーザー・ポリシー・アクセスキーを消す
+
+`create-participants.sh` で作った場合は、`owner` が `userN`、IAM ユーザー名が
+`git-workflow-tutorial-userN` です (両者は別物なので、範囲を作成時と揃えてください)。
+
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+for N in $(seq 1 15); do
+  OWNER="user${N}"
+  IAM_USER="git-workflow-tutorial-user${N}"
+  POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/gitflow-tutorial-${OWNER}-setup"
+
+  # アクセスキーとポリシーを外してからでないとユーザーは削除できない
+  aws iam list-access-keys --user-name "${IAM_USER}" \
+    --query 'AccessKeyMetadata[].AccessKeyId' --output text | tr '\t' '\n' \
+    | xargs -r -I{} aws iam delete-access-key --user-name "${IAM_USER}" --access-key-id {}
+
+  aws iam detach-user-policy --user-name "${IAM_USER}" --policy-arn "${POLICY_ARN}"
+
+  # ポリシーは既定以外のバージョンが残っていると削除できない。
+  # apply-setup-policy.sh で貼り直していると版が増えているので、先に消す
+  aws iam list-policy-versions --policy-arn "${POLICY_ARN}" \
+    --query 'Versions[?!IsDefaultVersion].VersionId' --output text | tr '\t' '\n' \
+    | xargs -r -I{} aws iam delete-policy-version --policy-arn "${POLICY_ARN}" --version-id {}
+
+  aws iam delete-policy --policy-arn "${POLICY_ARN}"
+  aws iam delete-user --user-name "${IAM_USER}"
+done
+```
+
+`owner` と IAM ユーザー名を同じにして作った場合 (上の「参加者ごとに IAM ユーザーと
+ポリシーを作る」の例) は、`IAM_USER` を `${OWNER}` に読み替えてください。
+
+### 3. 配布物を始末する
+
+- `credentials/participant-access-keys.csv` (gitignore 済み) を削除する
+- 参加者に配ったキーを Slack や DM に残していれば、そこからも消す
+
+### 4. GitHub OIDC プロバイダ (既定は消さない)
+
+アカウント共有リソースなので、他のプロジェクトが使っている可能性があります。この演習の
+ために作り、他に使い道が無いと確信できる場合だけ削除してください。
+
+```bash
+aws iam delete-open-id-connect-provider \
+  --open-id-connect-provider-arn \
+  "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+```
