@@ -43,6 +43,11 @@ resource "aws_lambda_function" "api" {
   }
 }
 
+# 同じ関数への AddPermission は同時に走らせられない (409
+# ResourceConflictException になる)。この Function URL と下の permission 2 つは
+# いずれも関数ポリシーを書き換える (authorization_type = "NONE" の Function URL は
+# provider が FunctionURLAllowPublicAccess を自動で足す) ため、depends_on で
+# 直列化している。外すと Terraform が並列に流し、apply が確率的に落ちる (#72)。
 resource "aws_lambda_function_url" "api" {
   for_each = local.environments
 
@@ -58,6 +63,8 @@ resource "aws_lambda_permission" "function_url" {
   function_name          = aws_lambda_function.api[each.key].function_name
   principal              = "*"
   function_url_auth_type = "NONE"
+
+  depends_on = [aws_lambda_function_url.api]
 }
 
 # 2025-10 以降に作られた Function URL は、上の InvokeFunctionUrl だけでは呼び出せない。
@@ -79,4 +86,6 @@ resource "aws_lambda_permission" "function_url_invoke" {
   function_name            = aws_lambda_function.api[each.key].function_name
   principal                = "*"
   invoked_via_function_url = true
+
+  depends_on = [aws_lambda_permission.function_url]
 }
