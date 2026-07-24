@@ -355,6 +355,87 @@ variables に流し込みます。
 まま)。最初のデプロイは第1章の PR がそのまま担うので、ここでは URL を控えるだけで
 次に進んでください。
 
+<details>
+<summary>▶ <b>CD が <code>Not authorized to perform sts:AssumeRoleWithWebIdentity</code> で失敗する場合</b></summary>
+
+**ここまで (0.3) を終える前に main へ push していたなら、その失敗は想定内です。**
+AWS ロールを作るのは 0.2、その ARN を GitHub の variables に入れるのは 0.3 の
+`sync-github-vars.sh` です。この間に走った CD には渡すべきロールがまだ無いので、必ず落ちます。
+
+0.3 まで完了しているなら、**失敗した run を再実行するだけで通ります** (再実行は現在の
+variables を読み直します)。
+
+```bash
+gh run list --workflow=cd-dev.yml --limit 5
+gh run rerun <RUN_ID> --failed
+```
+
+再実行しても同じエラーが出るなら、設定のどこかが食い違っています。AWS はロールの存在を
+呼び出し側に漏らさないため、この 1 文は「ロールが無い」「信頼ポリシーの条件が合わない」
+「プロバイダが違う」のどれでも同じ文言になります。権限の問題に見えますが、実際にはほぼ
+名前の食い違いです。上から順に潰してください。
+
+**1. variables のロール ARN が自分のものか**
+
+```bash
+gh variable list --env dev
+echo "$(terraform -chdir=terraform output -raw name_prefix)-dev-deploy"
+```
+
+`AWS_ROLE_ARN` の末尾が下の行と一致していること。違っていれば `./scripts/sync-github-vars.sh`
+を実行し直します。
+
+**2. 信頼ポリシーの `sub` が、GitHub の送る値と一致するか**
+
+```bash
+aws iam get-role \
+  --role-name "$(terraform -chdir=terraform output -raw name_prefix)-dev-deploy" \
+  --query 'Role.AssumeRolePolicyDocument' --output json
+
+echo "repo:$(gh repo view --json nameWithOwner -q .nameWithOwner):environment:dev"
+```
+
+出力の `sub` の `repo:<owner>/<repo>` の部分と、下の行が一致していること。ズレていたら
+`terraform/terraform.tfvars` の `github_repository` を実際のリポジトリ名に直し、
+`terraform -chdir=terraform apply` の後に `./scripts/sync-github-vars.sh` を実行し直して
+ください。
+
+`aws iam get-role` が `NoSuchEntity` を返す場合は、0.2 の `terraform apply` が完走して
+いません。0.2 に戻ってください。
+
+**3. GitHub の不変 ID (immutable ID) で `sub` がズレていないか**
+
+名前は一致しているのに落ちる場合、これが原因のことがあります。GitHub は OIDC の `sub` の
+リポジトリ部分を、名前ではなく数値の**不変 ID** で発行するアカウントがあります
+(`repo:<owner>@<数値>/<repo>@<数値>:...`)。名前は一致して見えるのに数値 ID の部分だけ
+食い違うため、最も気付きにくい経路です。
+
+```bash
+gh api "repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/actions/oidc/customization/sub" \
+  -q .sub_claim_prefix
+```
+
+出力に `@<数値>` が入っていれば、あなたのアカウントは不変 ID の対象です。信頼ポリシー
+([`terraform/oidc.tf`](../terraform/oidc.tf)) は名前ベースと不変 ID の両形式を許可して
+いるので、**この tutorial の最新の Terraform を apply していれば通ります**。古い版で
+作ったロールが残っているなら、`terraform -chdir=terraform apply` で信頼ポリシーを
+更新してください。
+
+**4. OIDC プロバイダが `sts.amazonaws.com` を受け付けるか**
+
+```bash
+aws iam get-open-id-connect-provider \
+  --open-id-connect-provider-arn \
+    "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):oidc-provider/token.actions.githubusercontent.com" \
+  --query '{url:Url, audiences:ClientIDList}'
+```
+
+`audiences` に `sts.amazonaws.com` が無ければ原因はこれです。ただしプロバイダは
+**アカウント共有のリソース**なので、AWS アカウントを共有して受講している場合は自分では
+直せません (同じアカウントの参加者全員が同時に落ちているはずです)。管理者に連絡してください。
+
+</details>
+
 ---
 
 ← [目次](./README.md) | [第1章 フィーチャー開発 →](./01-feature-flow.md)

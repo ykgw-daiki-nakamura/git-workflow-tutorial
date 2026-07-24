@@ -54,7 +54,7 @@ if [[ ${CONFIGURED_REPO} != "${REPO}" ]]; then
   # 大文字小文字だけの違いは見た目で気付けない。名指ししないと直せない。
   if [[ ${CONFIGURED_REPO,,} == "${REPO,,}" ]]; then
     echo "" >&2
-    echo "       違いは大文字小文字だけです。信頼ポリシーの条件は StringEquals なので、" >&2
+    echo "       違いは大文字小文字だけです。信頼ポリシーの sub 照合は大文字小文字を区別するので、" >&2
     echo "       これも不一致として扱われます。" >&2
   fi
   echo "" >&2
