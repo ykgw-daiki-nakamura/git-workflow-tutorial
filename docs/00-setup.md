@@ -54,18 +54,11 @@ uv --version
 aws sts get-caller-identity   # Account / Arn が返れば OK
 ```
 
-次に、その認証情報で `terraform apply` に必要な権限が揃っているかを確かめます (読み取り
-だけで、何も作りません)。`<owner>` は管理者から伝えられた値に置き換えてください。
-
-```bash
-./scripts/check-aws-permissions.sh <owner>
-```
-
-ここで `権限なし` が出たら、先に進んでも apply の途中で `AccessDenied` になるだけです。
-表示された内容を管理者に伝えてください。
-
 `InvalidClientTokenId` や `ExpiredToken` が返る場合は、キーの貼り間違いか、一時認証情報の
 期限切れです。
+
+`terraform apply` に必要な権限が揃っているかは、`owner` を書いたあとの
+[0.2](#02-aws-リソースの作成) の手順 2 でまとめて確認します。
 
 > [!CAUTION]
 > アクセスキーはパスワードと同じです。リポジトリにコミットしない (`.gitignore` 済みの
